@@ -42,3 +42,15 @@ export function flattenBranches<T extends { children: T[] }>(bs: T[], out: T[] =
   for (const b of bs) { out.push(b); flattenBranches(b.children, out); }
   return out;
 }
+
+/**
+ * Amplitude's Visual Labeling activates its pre-installed SDK's dormant
+ * toolbar via a handshake with the tab that opened it — Precedence is a
+ * local CLI, not a hosted dashboard, so a URL query param the already-
+ * installed component checks for itself is enough; no postMessage/opener
+ * dance needed. `@precedence/wizard` opens `<your-dev-url>?precedence=pick`
+ * directly instead of requiring a manual bookmarklet click.
+ */
+export function shouldAutoActivate(search: string): boolean {
+  return new URLSearchParams(search).get("precedence") === "pick";
+}

@@ -1,9 +1,11 @@
 "use client";
 /**
  * <PrecedenceDevtools /> — drop it in your root layout, same pattern as
- * @tanstack/react-query-devtools: a real component in your own tree, not a
- * script injected across a page boundary. No CORS, no bookmarklet, no
- * cross-origin fiber walk — the fiber it reads is its own app's.
+ * @tanstack/react-query-devtools: a real component in your own tree. Opens
+ * itself automatically when `@precedence/wizard` launches your dev server
+ * with `?precedence=pick` (same idea as Amplitude's Visual Labeling
+ * activating its pre-installed SDK's dormant toolbar — see shouldAutoActivate
+ * in resolve.ts) — Alt+Shift+P also opens it manually at any time.
  *
  * Tree-shaken out of production the same way every dev-only devtools
  * component is: gate the import/render behind `process.env.NODE_ENV !==
@@ -12,7 +14,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { Catalog, OutcomeBranch, UiElement } from "./catalog";
-import { fiberSource, findElement, flattenBranches } from "./resolve";
+import { fiberSource, findElement, flattenBranches, shouldAutoActivate } from "./resolve";
 
 export interface PrecedenceDevtoolsProps {
   /** where to fetch catalog.pcs from; default assumes it's in your public/ dir */
@@ -75,6 +77,13 @@ export function PrecedenceDevtools({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (shouldAutoActivate(window.location.search)) {
+      setOpen(true);
+      setPicking(true);
+    }
   }, []);
 
   function addToPlan(b: OutcomeBranch): void {

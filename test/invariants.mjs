@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { fiberSource, findElement, flattenBranches } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
+const { fiberSource, findElement, flattenBranches, shouldAutoActivate } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
 const { PrecedenceDevtools } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
 const React = (await import("react")).default;
 const { renderToStaticMarkup } = (await import("react-dom/server")).default;
@@ -58,6 +58,13 @@ check("findElement: doesn't confuse two files that share a line number",
 const tree = [{ id: "a", children: [{ id: "a.1", children: [{ id: "a.1.1", children: [] }] }] }, { id: "b", children: [] }];
 check("flattenBranches: flattens nested children, preserves every node",
   flattenBranches(tree).map((b) => b.id).join(",") === "a,a.1,a.1.1,b");
+
+/* ---- shouldAutoActivate: the wizard's ?precedence=pick handshake, no postMessage/opener needed ---- */
+check("shouldAutoActivate: true for ?precedence=pick", shouldAutoActivate("?precedence=pick") === true);
+check("shouldAutoActivate: false with no query string at all", shouldAutoActivate("") === false);
+check("shouldAutoActivate: false for an unrelated query param", shouldAutoActivate("?foo=bar") === false);
+check("shouldAutoActivate: false for the right key, wrong value (doesn't fire on just any 'precedence' param)",
+  shouldAutoActivate("?precedence=other") === false);
 
 /* ---- the component itself: renders without throwing, server-side (no jsdom needed) ---- */
 const markup = renderToStaticMarkup(React.createElement(PrecedenceDevtools, {}));

@@ -19,10 +19,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-Alt+Shift+P opens the panel, "Pick an element" arms click-picking, click an
-element on your page, choose which of its outcomes to track, name them,
-"Save & continue" — same flow the bookmarklet had, just running inside your
-own React tree instead of injected into it from outside.
+Alt+Shift+P opens the panel manually at any time. `@precedence/wizard` also
+opens it automatically: it launches your dev server with `?precedence=pick`
+appended, which this component checks for on mount and opens itself,
+click-picking already armed — the same idea as Amplitude's Visual Labeling
+activating its pre-installed SDK's dormant toolbar when it opens your site,
+except without the `postMessage`/window-opener handshake Amplitude needs
+(that exists because their trigger comes from a separate hosted dashboard
+tab; a local CLI can just open the right URL directly). Click an element,
+choose which of its outcomes to track, name them, "Save & continue".
 
 ## Why this instead of a bookmarklet
 
@@ -54,7 +59,7 @@ fix for those builds, and this package doesn't do that wiring for you yet.
 ```
 src/
 ├── catalog.ts   the public subset of @precedence/cli's catalog.pcs shape this reads (no dependency on @precedence/cli itself)
-├── resolve.ts   fiberSource / findElement — the resolution algorithm, unit-tested
+├── resolve.ts   fiberSource / findElement / shouldAutoActivate — unit-tested
 └── index.tsx    <PrecedenceDevtools /> — the panel
 ```
 
