@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { stampSource, fiberSource, resolveSource, findElement, flattenBranches, shouldAutoActivate } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
+const { stampSource, fiberSource, resolveSource, findElement, flattenBranches, shouldAutoActivate, toWire, fromWire } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
 const { PrecedenceDevtools } = await import(pathToFileURL(path.resolve(here, "../dist/devtools.js")).href);
 const { installFromPlan } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
 const React = (await import("react")).default;
@@ -85,6 +85,30 @@ check("shouldAutoActivate: false with no query string at all", shouldAutoActivat
 check("shouldAutoActivate: false for an unrelated query param", shouldAutoActivate("?foo=bar") === false);
 check("shouldAutoActivate: false for the right key, wrong value (doesn't fire on just any 'precedence' param)",
   shouldAutoActivate("?precedence=other") === false);
+
+/* ---- toWire / fromWire: the panel's in-memory plan <-> the file on disk, round-trips ---- */
+{
+  const plan = new Map();
+  plan.set("a.tsx#Checkout::form|onSubmit|ok", { name: "checkout_ok", properties: new Set(["amount", "user"]), allProps: ["amount", "user"], fingerprint: { handler: "onSubmit", conditionKey: "_.ok" } });
+  const wire = toWire(plan);
+  check("toWire: one map entry -> one wire event with one anchor",
+    wire.events.length === 1 && wire.events[0].name === "checkout_ok" &&
+      wire.events[0].anchors[0].id === "a.tsx#Checkout::form|onSubmit|ok");
+  check("toWire: a Set of properties becomes a plain array in the wire shape",
+    JSON.stringify(wire.events[0].properties.slice().sort()) === JSON.stringify(["amount", "user"]));
+
+  const roundTripped = fromWire(wire);
+  check("fromWire: round-trips toWire's own output back to an equivalent map",
+    roundTripped.get("a.tsx#Checkout::form|onSubmit|ok")?.name === "checkout_ok" &&
+      [...roundTripped.get("a.tsx#Checkout::form|onSubmit|ok").properties].sort().join(",") === "amount,user");
+
+  check("fromWire: an empty/missing events array -> an empty map, not a throw",
+    fromWire({}).size === 0 && fromWire({ events: [] }).size === 0);
+
+  check("fromWire: a hand-edited plan (no properties array) still round-trips the name",
+    fromWire({ events: [{ name: "manual_event", anchors: [{ id: "x#Y::z|onClick", fingerprint: { handler: "onClick", conditionKey: "" } }] }] })
+      .get("x#Y::z|onClick")?.name === "manual_event");
+}
 
 /* ---- the component itself: renders without throwing, server-side (no jsdom needed) ---- */
 const markup = renderToStaticMarkup(React.createElement(PrecedenceDevtools, {}));

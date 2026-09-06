@@ -6,6 +6,16 @@
  * `?precedence=pick` (see shouldAutoActivate in resolve.ts) — Alt+Shift+P
  * also opens it manually at any time.
  *
+ * Every pick/rename/remove POSTs the full current plan to `planEndpoint`
+ * immediately — `@precedence/wizard`'s local server overwrites
+ * `.precedence/plan.json` with it on every one of those, not just once at
+ * the end. That's the real persistence layer: a reload, a tab close, or a
+ * crash mid-picking loses nothing, since the file was already current. On
+ * mount this also GETs the same endpoint to rehydrate whatever's already
+ * been picked, so navigating around the app to find more elements doesn't
+ * reset anything either. There's no "Save & continue" button to click — the
+ * terminal is the "I'm done" signal, since the file is already correct.
+ *
  * Tree-shaken out of production the same way any dev-only component is:
  * gate the import/render behind `process.env.NODE_ENV !== "production"` in
  * your own layout (see README) — this package doesn't do that for you,
@@ -13,16 +23,15 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { Catalog, OutcomeBranch, UiElement } from "./catalog";
-import { resolveSource, findElement, flattenBranches, shouldAutoActivate } from "./resolve";
+import { resolveSource, findElement, flattenBranches, shouldAutoActivate, toWire, fromWire, type PlanEntry } from "./resolve";
 
 export interface PrecedenceDevtoolsProps {
   /** where to fetch catalog.pcs from; default assumes it's in your public/ dir */
   catalogUrl?: string;
-  /** where the finished plan is POSTed; default matches @precedence/wizard's local server */
+  /** where the current plan is read from (GET) and saved to (POST); default
+   *  matches @precedence/wizard's local server */
   planEndpoint?: string;
 }
-
-interface PlanEntry { name: string; properties: Set<string>; allProps: string[]; fingerprint: OutcomeBranch["fingerprint"]; }
 
 export function PrecedenceDevtools({
   catalogUrl = "/precedence-catalog.pcs",
@@ -33,15 +42,28 @@ export function PrecedenceDevtools({
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [selected, setSelected] = useState<UiElement | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const planRef = useRef<Map<string, PlanEntry>>(new Map());
   const panelRef = useRef<HTMLDivElement>(null);
+  const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, forceRender] = useState(0);
 
   useEffect(() => {
     if (!open || catalog) return;
     fetch(catalogUrl).then((r) => r.json()).then(setCatalog).catch(() => setNotice(`Couldn't fetch ${catalogUrl}`));
   }, [open, catalog, catalogUrl]);
+
+  // rehydrate whatever's already been picked (a previous run, or picking
+  // across a reload/navigation) — once, the first time the panel opens
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (!open || hydrated.current) return;
+    hydrated.current = true;
+    fetch(planEndpoint)
+      .then((r) => r.json())
+      .then((data) => { planRef.current = fromWire(data); forceRender((n) => n + 1); })
+      .catch(() => { /* nothing saved yet, or the wizard isn't running — start empty */ });
+  }, [open, planEndpoint]);
 
   useEffect(() => {
     if (!picking) return;
@@ -85,6 +107,16 @@ export function PrecedenceDevtools({
     }
   }, []);
 
+  async function persist(): Promise<void> {
+    setSaveState("saving");
+    try {
+      await fetch(planEndpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(toWire(planRef.current)) });
+      setSaveState("saved");
+    } catch {
+      setSaveState("idle");
+    }
+  }
+
   function addToPlan(b: OutcomeBranch): void {
     if (planRef.current.has(b.id)) return;
     planRef.current.set(b.id, {
@@ -94,20 +126,20 @@ export function PrecedenceDevtools({
       fingerprint: b.fingerprint,
     });
     forceRender((n) => n + 1);
+    void persist();
   }
-  function removeFromPlan(id: string): void { planRef.current.delete(id); forceRender((n) => n + 1); }
+  function removeFromPlan(id: string): void {
+    planRef.current.delete(id);
+    forceRender((n) => n + 1);
+    void persist();
+  }
   function renameEntry(id: string, name: string): void {
     const e = planRef.current.get(id);
     if (e) e.name = name;
     forceRender((n) => n + 1);
-  }
-
-  async function save(): Promise<void> {
-    const events = [...planRef.current.entries()].map(([id, e]) => ({
-      name: e.name, properties: [...e.properties], anchors: [{ id, fingerprint: e.fingerprint }],
-    }));
-    await fetch(planEndpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ events }) });
-    setSaved(true);
+    // debounced — an auto-save per keystroke would be a lot of noise for no benefit
+    if (renameTimer.current) clearTimeout(renameTimer.current);
+    renameTimer.current = setTimeout(() => void persist(), 400);
   }
 
   const planSize = planRef.current.size;
@@ -155,9 +187,9 @@ export function PrecedenceDevtools({
                 <button onClick={() => removeFromPlan(id)} style={{ color: "#c00", background: "none", border: "none", cursor: "pointer", fontSize: 11, marginTop: 4 }}>remove</button>
               </div>
             ))}
-            <button onClick={save} disabled={planSize === 0} style={{ width: "100%", padding: 8, marginTop: 10, cursor: "pointer" }}>
-              {saved ? "Saved" : "Save & continue"}
-            </button>
+            <div style={{ marginTop: 10, fontSize: 11, color: "#888", textAlign: "center" }}>
+              {saveState === "saving" ? "saving…" : saveState === "saved" ? "saved to .precedence/plan.json — switch back to your terminal when you're done" : "pick an outcome to start saving"}
+            </div>
           </div>
         </div>
       )}

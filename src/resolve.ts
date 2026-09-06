@@ -77,3 +77,31 @@ export function flattenBranches<T extends { children: T[] }>(bs: T[], out: T[] =
 export function shouldAutoActivate(search: string): boolean {
   return new URLSearchParams(search).get("precedence") === "pick";
 }
+
+export interface PlanEntry {
+  name: string;
+  properties: Set<string>;
+  allProps: string[];
+  fingerprint: { handler: string; conditionKey: string };
+}
+export interface PlanAnchor { id: string; fingerprint: PlanEntry["fingerprint"]; }
+export interface PlanEvent { name: string; properties: string[]; anchors: PlanAnchor[]; }
+export interface WirePlan { events: PlanEvent[]; }
+
+/** The panel's in-memory plan -> the wire shape @precedence/instrument consumes. */
+export function toWire(plan: Map<string, PlanEntry>): WirePlan {
+  return { events: [...plan.entries()].map(([id, e]) => ({ name: e.name, properties: [...e.properties], anchors: [{ id, fingerprint: e.fingerprint }] })) };
+}
+
+/** The inverse of toWire, best-effort — an event this component didn't itself
+ *  produce (hand-edited, or from a previous run) still round-trips its name
+ *  and properties, just without the original candidateProps list to offer. */
+export function fromWire(data: Partial<WirePlan>): Map<string, PlanEntry> {
+  const plan = new Map<string, PlanEntry>();
+  for (const ev of data.events || []) {
+    for (const a of ev.anchors || []) {
+      plan.set(a.id, { name: ev.name, properties: new Set(ev.properties || []), allProps: ev.properties || [], fingerprint: a.fingerprint });
+    }
+  }
+  return plan;
+}
