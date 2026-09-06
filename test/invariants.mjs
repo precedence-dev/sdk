@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { fiberSource, findElement, flattenBranches, shouldAutoActivate } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
+const { stampSource, fiberSource, resolveSource, findElement, flattenBranches, shouldAutoActivate } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
 const { PrecedenceDevtools } = await import(pathToFileURL(path.resolve(here, "../dist/devtools.js")).href);
 const { installFromPlan } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
 const React = (await import("react")).default;
@@ -35,6 +35,27 @@ check("fiberSource: no fiber anywhere in the ancestry resolves to null (the SWC/
 
 check("fiberSource: recognises the older __reactInternalInstance$ tag too",
   fiberSource({ __reactInternalInstance$xyz: leafFiber, parentElement: null })?.lineNumber === 42);
+
+check("fiberSource: falls back to memoizedProps.__source (an older React shape)",
+  fiberSource({ __reactFiber$x: { memoizedProps: { __source: { fileName: "a.tsx", lineNumber: 9 } } }, parentElement: null })?.lineNumber === 9);
+
+check("fiberSource: falls back to _debugOwner._debugSource when the fiber itself has neither",
+  fiberSource({ __reactFiber$x: { _debugOwner: { _debugSource: { fileName: "a.tsx", lineNumber: 3 } } }, parentElement: null })?.lineNumber === 3);
+
+/* ---- stampSource: the stamp loader's data-pm-el attribute, works on any compiler ---- */
+const stampedEl = { getAttribute: (n) => (n === "data-pm-el" ? "src/Checkout.tsx:12" : null) };
+const fakeElement = (closestResult) => ({ closest: () => closestResult, getAttribute: () => null });
+check("stampSource: parses a real data-pm-el attribute into {fileName, lineNumber}",
+  JSON.stringify(stampSource(fakeElement(stampedEl))) === JSON.stringify({ fileName: "src/Checkout.tsx", lineNumber: 12 }));
+check("stampSource: no [data-pm-el] ancestor (closest finds nothing) -> null", stampSource(fakeElement(null)) === null);
+check("stampSource: a node with no .closest at all (not a real Element) -> null, doesn't throw", stampSource({}) === null);
+
+/* ---- resolveSource: stamp first, fiber as the fallback only when no stamp exists ---- */
+check("resolveSource: prefers the stamp over the fiber when both are present",
+  resolveSource({ closest: () => stampedEl, __reactFiber$x: leafFiber, parentElement: null }).fileName === "src/Checkout.tsx");
+check("resolveSource: falls back to the fiber when there's no stamp",
+  resolveSource({ closest: () => null, __reactFiber$x: leafFiber, parentElement: null })?.lineNumber === 42);
+check("resolveSource: neither present -> null", resolveSource({ closest: () => null, parentElement: null }) === null);
 
 /* ---- findElement: file suffix + a small line-drift tolerance ---- */
 const catalog = {

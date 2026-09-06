@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { Catalog, OutcomeBranch, UiElement } from "./catalog";
-import { fiberSource, findElement, flattenBranches, shouldAutoActivate } from "./resolve";
+import { resolveSource, findElement, flattenBranches, shouldAutoActivate } from "./resolve";
 
 export interface PrecedenceDevtoolsProps {
   /** where to fetch catalog.pcs from; default assumes it's in your public/ dir */
@@ -51,9 +51,9 @@ export function PrecedenceDevtools({
       e.preventDefault();
       e.stopPropagation();
       if (!catalog) { setNotice("Catalog not loaded yet."); return; }
-      const src = fiberSource(target);
+      const src = resolveSource(target);
       if (!src) {
-        setNotice("Can't resolve this element — no React dev source info on this build (likely SWC/Next.js or React 19). This needs the classic Babel dev transform, or the stamp loader wired into your bundler config.");
+        setNotice("Can't resolve this element — no data-pm-el stamp (stamp loader not wired into your bundler config) and no React dev source info on this build (likely SWC/Next.js or React 19, which need the stamp loader).");
         setSelected(null);
         return;
       }

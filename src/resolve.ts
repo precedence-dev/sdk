@@ -1,28 +1,56 @@
 /**
- * Resolve a clicked DOM node to a catalog element via React's dev-mode fiber
- * (`_debugSource`: file + line, set by the classic Babel/React dev
- * transform). The honest limit: some builds (Next.js's default SWC
- * compiler, React 19) don't set `_debugSource` at all, and this returns null
- * rather than guessing when that's the case. @precedence/cli's README
- * documents this as the "fiber" rung between the stamp loader and a
- * file-scoped fallback.
+ * Resolve a clicked DOM node to a catalog element. Two independent sources,
+ * tried in the order @precedence/cli's README documents (stamp loader ->
+ * fiber -> a file-scoped fallback — this covers the first two rungs):
+ *
+ *  - stampSource: the `data-pm-el="file:line"` attribute @precedence/cli's
+ *    stamp loader stamps onto interactive JSX at build time (a webpack/
+ *    Turbopack loader, wired in by @precedence/wizard) — works regardless of
+ *    compiler, including Next.js's default SWC and React 19.
+ *  - fiberSource: React's dev-mode fiber (`_debugSource`, or the older
+ *    `__source`/`_debugOwner` shapes) — set by the classic Babel/React dev
+ *    transform. The honest limit: SWC and React 19 don't set it, and this
+ *    returns null rather than guessing when that's the case — which is
+ *    exactly why stampSource is tried first.
  */
 import type { Catalog, UiElement } from "./catalog";
 
-export function fiberSource(node: unknown): { fileName: string; lineNumber: number } | null {
+type Source = { fileName: string; lineNumber: number };
+
+export function stampSource(node: unknown): Source | null {
+  const el = node as Element | null;
+  const stamped = el && typeof el.closest === "function" ? el.closest("[data-pm-el]") : null;
+  const attr = stamped ? stamped.getAttribute("data-pm-el") : null;
+  const m = attr ? /^(.+):(\d+)$/.exec(attr) : null;
+  return m ? { fileName: m[1], lineNumber: +m[2] } : null;
+}
+
+export function fiberSource(node: unknown): Source | null {
   let n = node as (Record<string, unknown> & { parentElement?: unknown }) | null;
   while (n) {
     const key = Object.keys(n).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
     if (key) {
-      let fiber = n[key] as { _debugSource?: { fileName: string; lineNumber: number }; return?: unknown } | undefined;
+      type Fiber = {
+        _debugSource?: Source;
+        memoizedProps?: { __source?: Source };
+        _debugOwner?: { _debugSource?: Source };
+        return?: unknown;
+      };
+      let fiber = n[key] as Fiber | undefined;
       while (fiber) {
-        if (fiber._debugSource) return fiber._debugSource;
-        fiber = fiber.return as typeof fiber;
+        const s = fiber._debugSource || fiber.memoizedProps?.__source || fiber._debugOwner?._debugSource;
+        if (s) return s;
+        fiber = fiber.return as Fiber | undefined;
       }
     }
     n = (n.parentElement as typeof n) || null;
   }
   return null;
+}
+
+/** Both sources in priority order, whichever resolves first. */
+export function resolveSource(node: unknown): Source | null {
+  return stampSource(node) || fiberSource(node);
 }
 
 export function findElement(catalog: Catalog, fileName: string, line: number): UiElement | null {
