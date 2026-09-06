@@ -1,9 +1,7 @@
 /**
- * @precedence/devtools invariants: the resolution algorithm is the part with
- * real logic here (the component itself is UI, exercised by hand against a
- * real app — see README). Same fiberSource/findElement algorithm
- * @precedence/wizard's (now-retired) bookmarklet overlay used, run same-origin
- * instead of injected across a page boundary.
+ * @precedence/sdk invariants: the resolution algorithm and the runtime
+ * event-id lookup are the parts with real logic here (the component itself
+ * is UI, exercised by hand against a real app — see README).
  */
 import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
@@ -11,7 +9,8 @@ import * as path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { fiberSource, findElement, flattenBranches, shouldAutoActivate } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
-const { PrecedenceDevtools } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
+const { PrecedenceDevtools } = await import(pathToFileURL(path.resolve(here, "../dist/devtools.js")).href);
+const { installFromPlan } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
 const React = (await import("react")).default;
 const { renderToStaticMarkup } = (await import("react-dom/server")).default;
 
@@ -73,6 +72,32 @@ check("PrecedenceDevtools: renders with defaults, no crash, produces the floatin
 const markupCustom = renderToStaticMarkup(React.createElement(PrecedenceDevtools, { catalogUrl: "/x.pcs", planEndpoint: "http://x" }));
 check("PrecedenceDevtools: accepts catalogUrl/planEndpoint props without crashing",
   markupCustom.includes(">P<"));
+
+/* ---- installFromPlan: the emit:"runtime" side — id -> event name/props, no rebuild ---- */
+{
+  const plan = { events: [
+    { name: "checkout_ok", properties: ["amount"], anchors: [{ id: "a#Checkout::form|onSubmit|ok" }] },
+    { name: "checkout_guard", properties: [], anchors: [{ id: "a#Checkout::form|onSubmit|guard" }] },
+  ] };
+  const calls = [];
+  installFromPlan(plan, (name, props) => calls.push([name, props]));
+  globalThis.__pm("a#Checkout::form|onSubmit|ok", { amount: 42 });
+  check("installFromPlan: a known anchor id calls track() with the plan's event name",
+    calls.length === 1 && calls[0][0] === "checkout_ok" && calls[0][1].amount === 42);
+
+  globalThis.__pm("a#Checkout::form|onSubmit|unknown-id");
+  check("installFromPlan: an id absent from the plan is silently ignored, not thrown", calls.length === 1);
+
+  globalThis.__pm("a#Checkout::form|onSubmit|guard");
+  check("installFromPlan: an event with no properties still fires with an empty object",
+    calls.length === 2 && calls[1][0] === "checkout_guard" && JSON.stringify(calls[1][1]) === "{}");
+
+  const renamed = { events: [{ name: "checkout_success", properties: ["amount"], anchors: [{ id: "a#Checkout::form|onSubmit|ok" }] }] };
+  installFromPlan(renamed, (name, props) => calls.push([name, props]));
+  globalThis.__pm("a#Checkout::form|onSubmit|ok", { amount: 1 });
+  check("installFromPlan: re-installing with a renamed event changes what fires for the same id — no rebuild needed",
+    calls[2][0] === "checkout_success");
+}
 
 console.log(fails ? `\n${fails} FAILED` : "\nall invariants hold");
 process.exit(fails ? 1 : 0);

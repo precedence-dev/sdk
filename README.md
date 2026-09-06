@@ -1,13 +1,26 @@
-# @precedence/devtools
+# @precedence/sdk
 
-A floating devtools panel for picking tracking outcomes — imported into your
-own app tree, same pattern as `@tanstack/react-query-devtools`, not a script
-injected across a page boundary. `@precedence/wizard` used to solve this with
-a bookmarklet; this replaces that.
+Two things, imported into your own app rather than injected into it from
+outside:
+
+- **`installPrecedence`** — the runtime half. Makes `@precedence/instrument`'s
+  `emit: "runtime"` mode work: it injects `globalThis.__pm?.("<anchor id>", {
+  ...props })` at each anchor with no event name or static props baked in;
+  this fetches the plan and maps an anchor id back to its event, so
+  renaming/retargeting/adding a static prop is a plan edit, not a rebuild.
+- **`PrecedenceDevtools`** — the dev-only outcome picker panel.
+
+```tsx
+// wherever you call installPrecedence once, e.g. your root layout or _app
+import { installPrecedence } from "@precedence/sdk";
+import { track } from "@/lib/analytics"; // your actual analytics client
+
+installPrecedence({ track });
+```
 
 ```tsx
 // app/layout.tsx (Next.js App Router), or any root component
-import { PrecedenceDevtools } from "@precedence/devtools";
+import { PrecedenceDevtools } from "@precedence/sdk/devtools";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -19,51 +32,55 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-Alt+Shift+P opens the panel manually at any time. `@precedence/wizard` also
-opens it automatically: it launches your dev server with `?precedence=pick`
-appended, which this component checks for on mount and opens itself,
-click-picking already armed — the same idea as Amplitude's Visual Labeling
-activating its pre-installed SDK's dormant toolbar when it opens your site,
-except without the `postMessage`/window-opener handshake Amplitude needs
-(that exists because their trigger comes from a separate hosted dashboard
-tab; a local CLI can just open the right URL directly). Click an element,
+Split into two entry points (`.` and `./devtools`) so installing the runtime
+alone doesn't pull in React — `react`/`react-dom` are optional peer
+dependencies, only needed if you import `./devtools`.
+
+## The picker
+
+Alt+Shift+P opens `<PrecedenceDevtools />` manually at any time.
+`@precedence/wizard` also opens it automatically: it launches your dev
+server with `?precedence=pick` appended, which the component checks for on
+mount and opens itself, click-picking already armed. Click an element,
 choose which of its outcomes to track, name them, "Save & continue".
 
-## Why this instead of a bookmarklet
+Resolving a click to a catalog entry uses React's dev-mode fiber
+(`_debugSource` — file + line, set by the classic Babel/React dev
+transform); this is the "fiber" rung of the resolution order
+`@precedence/cli`'s own README documents (stamp loader -> fiber -> a
+file-scoped fallback). The honest limit: `_debugSource` isn't present on
+every build — notably not Next.js's default SWC compiler or React 19. The
+panel says so plainly on a failed resolution rather than guessing; the
+stamp loader (wired into your bundler config) is the actual fix for those
+builds, and this package doesn't do that wiring for you yet.
 
-The bookmarklet worked, but every limitation it had was a direct consequence
-of running *outside* your app (a different script, a different origin): CORS
-for every request, a fiber walk reaching across a page boundary rather than
-its own tree, an install step (drag a bookmark, or get silently blocked —
-Chrome/Firefox strip `javascript:` URLs pasted into the address bar) just to
-get code running on the page at all. A real imported component has none of
-that — it's already part of the tree.
-
-**What doesn't change**: `_debugSource` (the file+line React's dev-mode fiber
-carries, which is how a click resolves to a catalog entry) is set by the
-classic Babel/React dev JSX transform — a build-time property, not something
-where this code runs. Next.js's default SWC compiler and React 19 don't set
-it, same as before. The panel says so plainly on a failed resolution instead
-of guessing; the stamp loader (wired into your bundler config) is the actual
-fix for those builds, and this package doesn't do that wiring for you yet.
-
-## Props
+## Props (`PrecedenceDevtools`)
 
 | | default | |
 | --- | --- | --- |
 | `catalogUrl` | `/precedence-catalog.pcs` | fetched lazily, only once you open the panel |
 | `planEndpoint` | `http://127.0.0.1:51820/plan` | where the finished plan is POSTed — `@precedence/wizard`'s local server listens here |
 
+## Options (`installPrecedence`)
+
+| | default | |
+| --- | --- | --- |
+| `planUrl` | `/precedence-plan.json` | fetched once, on install |
+| `plan` | — | pass an already-fetched plan instead, skips the fetch |
+| `track` | (required) | your actual analytics call: `(name, props) => void` |
+
 ## Structure
 
 ```
 src/
-├── catalog.ts   the public subset of @precedence/cli's catalog.pcs shape this reads (no dependency on @precedence/cli itself)
-├── resolve.ts   fiberSource / findElement / shouldAutoActivate — unit-tested
-└── index.tsx    <PrecedenceDevtools /> — the panel
+├── catalog.ts    the public subset of @precedence/cli's catalog.pcs shape this reads (no dependency on @precedence/cli itself)
+├── resolve.ts    fiberSource / findElement / shouldAutoActivate — unit-tested
+├── devtools.tsx  <PrecedenceDevtools /> — the panel (exports/devtools)
+├── runtime.ts    installPrecedence / installFromPlan — unit-tested
+└── index.ts      the main entry: runtime only, no React
 ```
 
-Tree-shaken out of production the way every dev-only devtools component is:
-gate the import/render behind `process.env.NODE_ENV !== "production"` in your
-own layout, as in the example above — this package can't know your bundler's
-env-replacement setup, so it doesn't attempt that for you.
+Tree-shaken out of production the way every dev-only component is: gate the
+`./devtools` import/render behind `process.env.NODE_ENV !== "production"` in
+your own layout, as in the example above — this package can't know your
+bundler's env-replacement setup, so it doesn't attempt that for you.

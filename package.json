@@ -1,12 +1,13 @@
 {
-  "name": "@precedence/devtools",
+  "name": "@precedence/sdk",
   "version": "0.1.0",
-  "description": "A floating devtools panel for picking tracking outcomes, imported into your own app tree (same pattern as @tanstack/react-query-devtools) instead of injected across origins.",
+  "description": "The runtime half of Precedence (installPrecedence, for emit: \"runtime\" mode) and the dev-only outcome picker (PrecedenceDevtools), imported into your own app.",
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./devtools": { "types": "./dist/devtools.d.ts", "default": "./dist/devtools.js" }
   },
   "files": [
     "dist/",
@@ -21,6 +22,10 @@
   "peerDependencies": {
     "react": ">=16.8",
     "react-dom": ">=16.8"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "react-dom": { "optional": true }
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

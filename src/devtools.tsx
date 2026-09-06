@@ -1,16 +1,15 @@
 "use client";
 /**
- * <PrecedenceDevtools /> — drop it in your root layout, same pattern as
- * @tanstack/react-query-devtools: a real component in your own tree. Opens
- * itself automatically when `@precedence/wizard` launches your dev server
- * with `?precedence=pick` (same idea as Amplitude's Visual Labeling
- * activating its pre-installed SDK's dormant toolbar — see shouldAutoActivate
- * in resolve.ts) — Alt+Shift+P also opens it manually at any time.
+ * <PrecedenceDevtools /> — drop it in your root layout: a real component in
+ * your own tree, not a script injected across a page boundary. Opens itself
+ * automatically when `@precedence/wizard` launches your dev server with
+ * `?precedence=pick` (see shouldAutoActivate in resolve.ts) — Alt+Shift+P
+ * also opens it manually at any time.
  *
- * Tree-shaken out of production the same way every dev-only devtools
- * component is: gate the import/render behind `process.env.NODE_ENV !==
- * "production"` in your own layout (see README) — this package doesn't do
- * that for you, since it can't know your bundler's env-replacement setup.
+ * Tree-shaken out of production the same way any dev-only component is:
+ * gate the import/render behind `process.env.NODE_ENV !== "production"` in
+ * your own layout (see README) — this package doesn't do that for you,
+ * since it can't know your bundler's env-replacement setup.
  */
 import { useEffect, useRef, useState } from "react";
 import type { Catalog, OutcomeBranch, UiElement } from "./catalog";

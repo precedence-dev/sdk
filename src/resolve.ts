@@ -1,14 +1,11 @@
 /**
  * Resolve a clicked DOM node to a catalog element via React's dev-mode fiber
  * (`_debugSource`: file + line, set by the classic Babel/React dev
- * transform). Same algorithm @precedence/wizard's bookmarklet overlay used
- * cross-origin; here it runs same-origin, inside the app's own tree, since
- * this component is imported directly rather than injected across a page
- * boundary — but the fiber walk itself is identical, and the same honest
- * limit applies: some builds (Next.js's default SWC compiler, React 19)
- * don't set `_debugSource` at all, and this returns null rather than
- * guessing when that's the case. @precedence/cli's README documents this as
- * the "fiber" rung between the stamp loader and a file-scoped fallback.
+ * transform). The honest limit: some builds (Next.js's default SWC
+ * compiler, React 19) don't set `_debugSource` at all, and this returns null
+ * rather than guessing when that's the case. @precedence/cli's README
+ * documents this as the "fiber" rung between the stamp loader and a
+ * file-scoped fallback.
  */
 import type { Catalog, UiElement } from "./catalog";
 
@@ -44,12 +41,10 @@ export function flattenBranches<T extends { children: T[] }>(bs: T[], out: T[] =
 }
 
 /**
- * Amplitude's Visual Labeling activates its pre-installed SDK's dormant
- * toolbar via a handshake with the tab that opened it — Precedence is a
- * local CLI, not a hosted dashboard, so a URL query param the already-
- * installed component checks for itself is enough; no postMessage/opener
- * dance needed. `@precedence/wizard` opens `<your-dev-url>?precedence=pick`
- * directly instead of requiring a manual bookmarklet click.
+ * The activation handshake: `@precedence/wizard` opens
+ * `<your-dev-url>?precedence=pick` directly, and this component checks for
+ * that query param on mount to open itself with click-picking already armed
+ * — no injected script, no separate install step.
  */
 export function shouldAutoActivate(search: string): boolean {
   return new URLSearchParams(search).get("precedence") === "pick";
