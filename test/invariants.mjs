@@ -1,0 +1,71 @@
+/**
+ * @precedence/devtools invariants: the resolution algorithm is the part with
+ * real logic here (the component itself is UI, exercised by hand against a
+ * real app — see README). Same fiberSource/findElement algorithm
+ * @precedence/wizard's (now-retired) bookmarklet overlay used, run same-origin
+ * instead of injected across a page boundary.
+ */
+import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import * as path from "node:path";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const { fiberSource, findElement, flattenBranches } = await import(pathToFileURL(path.resolve(here, "../dist/resolve.js")).href);
+const { PrecedenceDevtools } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
+const React = (await import("react")).default;
+const { renderToStaticMarkup } = (await import("react-dom/server")).default;
+
+let fails = 0;
+const check = (name, ok, detail) => {
+  console.log((ok ? "  ok   " : "  FAIL ") + name + (ok || !detail ? "" : "\n         " + detail));
+  if (!ok) fails++;
+};
+
+/* ---- fiberSource: walks the fiber's `return` chain ---- */
+const leafFiber = { return: { return: { _debugSource: { fileName: "src/Checkout.tsx", lineNumber: 42 }, return: null } } };
+const domNode = { __reactFiber$abc123: leafFiber, parentElement: null };
+check("fiberSource: walks up the fiber's `return` chain to find _debugSource",
+  JSON.stringify(fiberSource(domNode)) === JSON.stringify({ fileName: "src/Checkout.tsx", lineNumber: 42 }));
+
+const plainDiv = { parentElement: domNode };
+check("fiberSource: climbs parentElement when the clicked node itself has no fiber tag",
+  fiberSource(plainDiv)?.lineNumber === 42);
+
+check("fiberSource: no fiber anywhere in the ancestry resolves to null (the SWC/React 19 case)",
+  fiberSource({ parentElement: { parentElement: null } }) === null);
+
+check("fiberSource: recognises the older __reactInternalInstance$ tag too",
+  fiberSource({ __reactInternalInstance$xyz: leafFiber, parentElement: null })?.lineNumber === 42);
+
+/* ---- findElement: file suffix + a small line-drift tolerance ---- */
+const catalog = {
+  tool: "precedence",
+  elements: [
+    { file: "src/Checkout.tsx", line: 12, component: "Checkout", tag: "form", actions: [] },
+    { file: "src/Other.tsx", line: 12, component: "Other", tag: "div", actions: [] },
+  ],
+};
+check("findElement: resolves an absolute-looking path by file suffix + line tolerance",
+  findElement(catalog, "C:\\repo\\src\\Checkout.tsx", 13)?.component === "Checkout");
+check("findElement: a real file but a line far from any element resolves to null, not a wrong guess",
+  findElement(catalog, "src/Checkout.tsx", 500) === null);
+check("findElement: a file not in the catalog resolves to null",
+  findElement(catalog, "src/NotScanned.tsx", 1) === null);
+check("findElement: doesn't confuse two files that share a line number",
+  findElement(catalog, "src/Other.tsx", 12)?.component === "Other");
+
+/* ---- flattenBranches: depth-first, includes every nested child ---- */
+const tree = [{ id: "a", children: [{ id: "a.1", children: [{ id: "a.1.1", children: [] }] }] }, { id: "b", children: [] }];
+check("flattenBranches: flattens nested children, preserves every node",
+  flattenBranches(tree).map((b) => b.id).join(",") === "a,a.1,a.1.1,b");
+
+/* ---- the component itself: renders without throwing, server-side (no jsdom needed) ---- */
+const markup = renderToStaticMarkup(React.createElement(PrecedenceDevtools, {}));
+check("PrecedenceDevtools: renders with defaults, no crash, produces the floating button",
+  markup.includes(">P<"));
+const markupCustom = renderToStaticMarkup(React.createElement(PrecedenceDevtools, { catalogUrl: "/x.pcs", planEndpoint: "http://x" }));
+check("PrecedenceDevtools: accepts catalogUrl/planEndpoint props without crashing",
+  markupCustom.includes(">P<"));
+
+console.log(fails ? `\n${fails} FAILED` : "\nall invariants hold");
+process.exit(fails ? 1 : 0);
