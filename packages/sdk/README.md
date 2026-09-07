@@ -42,12 +42,20 @@ this package's job. `installPrecedence`:
 `installFromPlan(plan, track)` is the fetch-free core if you want to load the
 plan yourself.
 
+## The picker hook
+
+When the page is opened with `?precedence=pick&at=<url>` (by `@precedence/wizard`),
+`installPrecedence` loads the picker agent from that URL — a ~15-line hook, no
+overlay code here, `at` must be localhost. That's how "click real elements in
+your running app" works; the agent + UI live in
+[`@precedence/viewer`](../viewer). It never runs in a normal page (the param is
+never there); `installPrecedence({ picker: false })` hard-disables it.
+
 ## Notes
 
-- **Not React-specific.** A dev-time outcome picker used to ship here as a React
-  component (`PrecedenceDevtools`); it was removed to keep this package
-  framework-neutral. Pick outcomes with the static [`@precedence/viewer`](../viewer)
-  (same repo) for now.
+- **Not React-specific.** A dev-time picker used to ship here as a React
+  component (`PrecedenceDevtools`); it's gone. The hook above is the
+  framework-neutral replacement.
 - `pm_id`, `data-pm-el`, `__pm` are the wire-protocol identifiers shared with
   `@precedence/instrument`'s injected calls.
 - `installPrecedence` fetches once at startup — until it resolves, `__pm` is

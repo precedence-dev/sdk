@@ -13,8 +13,15 @@ for "one event, N branches"), and exports the plan
 [`@precedence/instrument`](https://github.com/precedence-dev/instrument) consumes:
 `{ events: [{ name, properties, anchors: [{ id, fingerprint, staticProps? }] }] }`.
 
-This is the outcome picker. A live in-app picker — click the real running UI — is
-future work.
+## Live picker (`browser/agent.js`)
+
+`servePlan` also serves `agent.js` — a vanilla overlay `@precedence/sdk` injects
+into a running dev build (opened with `?precedence=pick&at=<this server>`). You
+hover/click real elements; it resolves each click to a catalog entry via the
+`data-precedence-dev-id` stamp ([`@precedence/cli/stamp-loader`](https://github.com/precedence-dev/core/tree/main/packages/cli)),
+shows that element's outcome branches, and POSTs the picked ones back as a plan.
+`@precedence/wizard` drives this. The overlay runs in a shadow root — no style
+collisions.
 
 ## Use
 

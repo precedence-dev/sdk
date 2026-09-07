@@ -72,7 +72,19 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
   check("servePlan: GET / serves the picker with the catalog baked in and post pointed at /plan",
     page.includes('"a.tsx#A::button"') && page.includes('<script id="precedence-post" type="application/json">"/plan"</script>'));
 
-  const sent = { tool: "precedence-viewer", events: [{ name: "e1", properties: [], anchors: [] }] };
+  const agent = await fetch(url + "agent.js");
+  check("servePlan: GET /agent.js serves the agent with CORS + JS content-type",
+    agent.ok && agent.headers.get("access-control-allow-origin") === "*"
+      && /javascript/.test(agent.headers.get("content-type") || "")
+      && /precedence-picker/.test(await agent.text()));
+  const cat2 = await fetch(url + "catalog");
+  check("servePlan: GET /catalog serves the catalog JSON with CORS",
+    cat2.ok && cat2.headers.get("access-control-allow-origin") === "*"
+      && (await cat2.json()).elements[0].ref === "a.tsx#A::button");
+  const pre = await fetch(url + "plan", { method: "OPTIONS" });
+  check("servePlan: OPTIONS preflight for the cross-origin POST -> 204 + CORS", pre.status === 204 && pre.headers.get("access-control-allow-origin") === "*");
+
+  const sent = { tool: "precedence-agent", events: [{ name: "e1", properties: [], anchors: [] }] };
   const ack = await fetch(url + "plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sent) });
   check("servePlan: POST /plan is acknowledged", ack.ok);
   const got = await planPromise;
@@ -83,6 +95,51 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
   const timedOut = await servePlan(cat, { open: false, timeoutMs: 60 }).then(() => null, (e) => e.message);
   check("servePlan: rejects on timeout with a clear message", /timed out/.test(timedOut || ""));
 }
+
+/* ---- agent.js: the in-page picker's pure logic (require-safe, no DOM) ---- */
+{
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const { entryFor, rowsFor, toEvents } = require(path.resolve(here, "../browser/agent.js"));
+
+  const agentCat = { elements: [{
+    file: "src/Checkout.tsx", line: 12, component: "Checkout", tag: "form", label: "",
+    actions: [{
+      name: "onSubmit", attachId: "src/Checkout.tsx#Checkout::form|onSubmit", suggestedName: "checkout_submit",
+      fingerprint: { handler: "onSubmit", conditionKey: "" }, candidateProps: [], branches: [
+        { id: "src/Checkout.tsx#Checkout::form|onSubmit|ok", label: "result.ok", terminal: true, inject: "statement",
+          fingerprint: { handler: "onSubmit", conditionKey: "_.ok" }, firesWhen: "Fires when the form is submitted, and result.ok",
+          suggestedName: "checkout_ok", candidateProps: [{ name: "result" }], children: [] },
+        { id: "src/Checkout.tsx#Checkout::form|onSubmit|guard", label: "!user", terminal: true, inject: "statement",
+          fingerprint: { handler: "onSubmit", conditionKey: "!_" }, suggestedName: "checkout_blocked", candidateProps: [{ name: "user" }], children: [] },
+      ],
+    }],
+    // a second element with a nearby line — the resolver should pick the closest
+  }, { file: "src/Other.tsx", line: 40, component: "Other", tag: "button", actions: [] }] };
+
+  const stamp = (v) => ({ closest: (s) => (s === "[data-precedence-dev-id]" ? { getAttribute: () => v } : null) });
+
+  check("agent entryFor: a data-precedence-dev-id stamp resolves to its catalog element by file + line",
+    entryFor(stamp("app/src/Checkout.tsx:13"), agentCat)?.component === "Checkout");
+  check("agent entryFor: no stamp -> null", entryFor(stamp(null), agentCat) === null);
+  check("agent entryFor: a line far from any element -> null",
+    entryFor(stamp("src/Checkout.tsx:400"), agentCat) === null);
+
+  const rows = rowsFor(entryFor(stamp("src/Checkout.tsx:12"), agentCat));
+  check("agent rowsFor: the action + each terminal branch, with fingerprints and props",
+    rows.length === 3
+      && rows[0].id === "src/Checkout.tsx#Checkout::form|onSubmit"
+      && rows.some((r) => r.id.endsWith("|ok") && r.props.includes("result") && r.fingerprint.conditionKey === "_.ok")
+      && rows.some((r) => r.id.endsWith("|guard")));
+
+  const events = toEvents({
+    "src/Checkout.tsx#Checkout::form|onSubmit|ok": { name: " checkout_ok ", fingerprint: { handler: "onSubmit", conditionKey: "_.ok" }, inject: "statement", props: ["result"] },
+  });
+  check("agent toEvents: picked rows -> the { name, properties, anchors:[{id,fingerprint,inject}] } instrument consumes",
+    events.length === 1 && events[0].name === "checkout_ok" && JSON.stringify(events[0].properties) === '["result"]'
+      && events[0].anchors[0].id.endsWith("|ok") && events[0].anchors[0].fingerprint.conditionKey === "_.ok");
+}
+
 
 /* ---- index.html: guard the two things a silent edit could break — the script
  * must parse, and eventExport() must keep the shape instrument resolves against.

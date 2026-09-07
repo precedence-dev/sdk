@@ -7,7 +7,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { installFromPlan } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
+const { installFromPlan, installPrecedence } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
 
 let fails = 0;
 const check = (name, ok, detail) => {
@@ -91,6 +91,37 @@ const check = (name, ok, detail) => {
     check("click listener: re-installing detaches the previous listener instead of stacking", listeners.length === 1);
   } finally {
     delete global.document;
+  }
+}
+
+/* ---- installPrecedence: the `?precedence=pick` picker hook ---- */
+{
+  const appended = [];
+  global.document = {
+    createElement: () => ({ set src(v) { this._src = v; }, get src() { return this._src; } }),
+    head: { appendChild: (n) => appended.push(n) },
+    addEventListener() {}, removeEventListener() {},
+  };
+  const withSearch = (s) => { global.window = { location: { search: s } }; };
+  let fetched = false;
+  global.fetch = () => { fetched = true; return Promise.resolve({ json: () => ({ events: [] }) }); };
+  try {
+    withSearch("?precedence=pick&at=http://127.0.0.1:51820");
+    await installPrecedence({ track: () => {} });
+    check("picker hook: ?precedence=pick&at=<localhost> loads agent.js from that origin, skips the plan fetch",
+      appended.length === 1 && appended[0].src === "http://127.0.0.1:51820/agent.js" && fetched === false);
+
+    appended.length = 0;
+    withSearch("?precedence=pick&at=https://evil.example.com");
+    await installPrecedence({ track: () => {}, plan: { events: [] } });
+    check("picker hook: a non-localhost `at` is refused — nothing injected", appended.length === 0);
+
+    appended.length = 0; fetched = false;
+    withSearch("?utm=x");
+    await installPrecedence({ track: () => {}, plan: { events: [] } });
+    check("picker hook: no ?precedence=pick -> normal install, no agent", appended.length === 0);
+  } finally {
+    delete global.document; delete global.window; delete global.fetch;
   }
 }
 

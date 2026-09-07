@@ -39,6 +39,8 @@ export interface InstallOpts {
   /** your analytics call, e.g. (name, props) => client.track(name, props). May
    *  return void, a Promise, or a thenable; failures are isolated from the app. */
   track: (name: string, props: Record<string, unknown>) => unknown;
+  /** set false to ignore `?precedence=pick` even in dev (default: honour it) */
+  picker?: boolean;
 }
 
 declare global {
@@ -116,6 +118,23 @@ export function installFromPlan(plan: RuntimePlan, track: InstallOpts["track"]):
 }
 
 export async function installPrecedence(opts: InstallOpts): Promise<void> {
+  if (opts.picker !== false && activatePicker()) return; // dev picker mode — skip the normal runtime wiring
   const plan = opts.plan ?? (await fetch(opts.planUrl ?? "/precedence-plan.json").then((r) => r.json()));
   installFromPlan(plan, opts.track);
+}
+
+/** `?precedence=pick&at=<url>` (from `@precedence/wizard`) loads the picker agent
+ *  into this page — the only overlay code is served from `at`, which must be
+ *  localhost. Returns true when it activated. */
+function activatePicker(): boolean {
+  if (typeof window === "undefined" || typeof document === "undefined") return false;
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("precedence") !== "pick") return false;
+  let at: URL;
+  try { at = new URL(q.get("at") || ""); } catch { return false; }
+  if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(at.hostname)) return false;
+  const s = document.createElement("script");
+  s.src = new URL("/agent.js", at.origin).href;
+  document.head.appendChild(s);
+  return true;
 }
