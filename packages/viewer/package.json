@@ -1,0 +1,22 @@
+{
+  "name": "@precedence/viewer",
+  "version": "0.1.0",
+  "description": "A browser for Precedence's catalog.pcs - review every tracking attach point, pick nodes, export an event plan. Zero dependencies; the CLI bakes a shareable static copy.",
+  "license": "MIT",
+  "bin": {
+    "precedence-view": "bin/precedence-view.js"
+  },
+  "main": "dist/render.js",
+  "types": "dist/render.d.ts",
+  "files": [
+    "dist/",
+    "bin/",
+    "index.html",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
+    "prepare": "npm run build",
+    "test": "npm run build && node test/invariants.mjs"
+  }
+}

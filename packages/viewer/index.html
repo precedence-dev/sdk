@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>precedence viewer</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fff; --panel: #fbfbfa; --line: #e4e4e2; --text: #1c1d1f; --muted: #6b6f76;
+    --accent: #2f6fed; --accent-soft: #eef4ff; --ok: #2f9e44; --ok-soft: #e7f6ec;
+    --warn: #e8590c; --error: #c8352b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1d2026; --panel: #16181d; --line: #2c313a; --text: #e6e7e9; --muted: #9098a4;
+      --accent-soft: #12233d; --ok-soft: #13291b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  code { font-family: var(--mono); }
+
+  /* landing */
+  #drop { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 16px; text-align: center; padding: 24px; }
+  #drop h1 { font-size: 22px; margin: 0; font-weight: 650; }
+  #drop p { color: var(--muted); margin: 0; max-width: 52ch; }
+  #drop .zone { border: 2px dashed var(--line); border-radius: 12px; padding: 40px 56px; }
+  #drop .zone.hot { border-color: var(--accent); background: var(--accent-soft); }
+  #drop label.pick { display: inline-block; margin-top: 10px; border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; background: var(--panel); }
+  #drop label.pick:hover { border-color: var(--accent); }
+  #drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  #drop .accepts { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  #drop .err { color: var(--error); font-family: var(--mono); font-size: 12.5px; }
+
+  /* app */
+  #app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+  #side { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+  #side header { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+  #side header b { font-size: 12px; }
+  #side header .sp { flex: 1; }
+  #side .search { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #side .search input { width: 100%; font: 12px var(--mono); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 7px; background: var(--bg); color: var(--text); }
+  #side .list { flex: 1; overflow: auto; padding: 4px 0 12px; }
+  #side .file { font: 10px var(--mono); text-transform: none; color: var(--muted); padding: 8px 12px 2px; }
+  #side .item { padding: 3px 12px 3px 20px; cursor: pointer; font-family: var(--mono); font-size: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #side .item:hover { background: var(--accent-soft); }
+  #side .item.sel { background: var(--accent-soft); font-weight: 650; }
+  #side .item .n { color: var(--muted); }
+  #side .item.tracked::after { content: "●"; color: var(--ok); margin-left: 6px; font-size: 9px; }
+
+  main { display: flex; flex-direction: column; min-height: 0; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); border-radius: 6px;
+    padding: 3px 8px; cursor: pointer; color: var(--text); }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--ok); color: #fff; border-color: var(--ok); }
+  #head { padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 6px; align-items: center; }
+  #head .sp { flex: 1; }
+  #body { flex: 1; overflow: auto; padding: 12px 14px; }
+  #body .el { font-family: var(--mono); font-weight: 700; margin-bottom: 2px; }
+  #body .loc { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+  #body .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  #body .banner { background: var(--accent-soft); border: 1px solid var(--line); border-radius: 6px;
+    padding: 7px 9px; margin-bottom: 10px; font-size: 12px; }
+  #body .banner b { font-family: var(--mono); }
+  #body .linkmode { background: #fff4e6; border: 1px solid #ffd8a8; color: #7a3d00; border-radius: 6px;
+    padding: 7px 9px; margin-bottom: 10px; font-size: 12px; }
+  @media (prefers-color-scheme: dark) { #body .linkmode { background: #3a2a12; color: #ffd8a8; border-color: #5a3f18; } }
+  #body ul { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 1px dashed var(--line); }
+  #body li { margin: 1px 0; }
+  #body .br { display: flex; gap: 6px; align-items: baseline; padding: 2px 6px; border-radius: 5px; cursor: pointer; }
+  #body .br:hover { background: var(--panel); }
+  #body .br.on { background: var(--ok-soft); outline: 1px solid var(--ok); }
+  #body .dot { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none;
+    align-self: center; font-size: 9px; color: #fff; text-align: center; line-height: 11px; }
+  #body .br.on .dot { background: var(--ok); border-color: var(--ok); }
+  #body .lab { font-weight: 600; }
+  #body .kind { font: 10px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px;
+    color: var(--muted); flex: none; }
+  #body .kind.syn { border-color: var(--accent); color: var(--accent); }
+  #body .fx { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+  #body .pill { background: var(--ok); color: #fff; border-radius: 999px; padding: 0 7px; font: 10px var(--mono); flex: none; }
+  #body .act-row { margin-top: 8px; }
+  #body .act-row .lab { color: var(--accent); }
+  #body .ed { margin: 2px 0 8px 20px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  #body .ed-h { font: 10px system-ui; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 8px 0 3px; }
+  #body .ed-h:first-child { margin-top: 0; }
+  #body .ed-name { width: 100%; font: 12px var(--mono); border: 1px solid var(--line); border-radius: 5px;
+    padding: 3px 6px; background: var(--bg); color: var(--text); }
+  #body .ed-p { display: flex; align-items: baseline; gap: 6px; font: 12px var(--mono); padding: 1px 0; cursor: pointer; }
+  #body .ed-pn { font-weight: 600; }
+  #body .ed-pf { color: var(--muted); }
+  #body .ed-pe { color: var(--warn); font-weight: 700; font-size: 10px; }
+  #body .ed-anch { font: 11px var(--mono); padding: 2px 0; border-top: 1px solid var(--line); }
+  #body .ed-anch .rm { cursor: pointer; color: var(--error); float: right; }
+  #body .ed-preview { margin-top: 8px; font: 11px var(--mono); color: var(--ok); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; word-break: break-all; }
+  #body .ed-json { margin-top: 6px; }
+  #body .ed-json summary { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); cursor: pointer; }
+  #body .ed-json pre { margin: 4px 0; font: 10px/1.4 var(--mono); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 5px; padding: 7px 9px; overflow: auto; max-height: 42vh; white-space: pre; }
+  #body .ed-x { font: 11px var(--mono); padding: 1px 0; }
+  #body .ed-x .t { font-size: 10px; }
+  #body .ed-x.ok .t { color: var(--ok); }
+  #body .ed-x.amb .t { color: var(--warn); }
+  #body .ed-x.bad { color: var(--error); }
+  #events { border-top: 1px solid var(--line); padding: 8px 14px; max-height: 32vh; overflow: auto; background: var(--panel); }
+  #events h4 { margin: 0 0 6px; font: 11px system-ui; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  #events .ev { font: 11px/1.5 var(--mono); padding: 3px 6px; border-bottom: 1px solid var(--line);
+    cursor: pointer; border-radius: 5px; display: flex; gap: 5px; align-items: baseline; }
+  #events .ev:hover { background: var(--accent-soft); }
+  #events .ev-n { font-weight: 700; color: var(--accent); flex: none; }
+  #events .ev-p { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #events .ev-w { color: var(--muted); margin-left: auto; flex: none; white-space: nowrap; }
+  #events .ev-rm { color: var(--error); flex: none; font-size: 10px; opacity: 0; }
+  #events .ev:hover .ev-rm { opacity: 1; }
+  #flash { position: fixed; bottom: 16px; right: 16px; background: var(--ok); color: #fff; padding: 6px 12px;
+    border-radius: 6px; font: 12px system-ui; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="drop">
+  <h1>precedence viewer</h1>
+  <p>Drop a <code>catalog.pcs</code> - the file
+     <code>precedence</code> emits. Browse every tracking attach point, pick nodes,
+     export an event spec. No running app needed.</p>
+  <div class="zone" id="zone">
+    <div>drag the file here</div>
+    <label class="pick">choose a file<input type="file" id="filein" accept=".pcs,.json,application/json"></label>
+  </div>
+  <div class="accepts">or open with <code>?src=/path/to/catalog.pcs</code></div>
+  <div class="err" id="drop-err" hidden></div>
+</div>
+
+<div id="app" hidden>
+  <div id="side">
+    <header><b>elements</b><span class="sp"></span><span id="side-stat" class="fx"></span></header>
+    <div class="search"><input id="q" placeholder="filter by tag / file / label" autocomplete="off"></div>
+    <div class="list" id="list"></div>
+  </div>
+  <main>
+    <div id="head">
+      <b>precedence</b><span id="head-meta" class="fx"></span><span class="sp"></span>
+      <button id="btn-copy">copy events</button>
+      <button id="btn-reset" title="drop a different catalog">↺</button>
+    </div>
+    <div id="body"><div class="empty">pick an element on the left</div></div>
+    <div id="events"></div>
+  </main>
+</div>
+
+<script id="precedence-catalog-data" type="application/json"><!--EMBED--></script>
+<script>
+(function () {
+  "use strict";
+  var SCHEMA = 4;
+  var catalog = null;
+  var LS = "precedence:viewer";   // + ":" + catalog commit
+  var lsKey = LS;
+  var currentRef = null;
+  var linkTo = null;                     // event key awaiting another node
+  var expanded = {};                     // event key -> editor open
+  var AMBIENT = /^(referrer|pathname|href|url|search|hash|title|user_?agent|language|timestamp|viewport|utm_\w+)$/i;
+
+  var $ = function (id) { return document.getElementById(id); };
+  function el(t, txt, cls) { var n = document.createElement(t); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; }
+  function flash(t) { var f = $("flash"); if (f) f.remove(); f = el("div", t); f.id = "flash"; document.body.appendChild(f); setTimeout(function () { f.remove(); }, 1400); }
+
+  /* ---------------------------------------------------------------- load */
+  function useCatalog(c) {
+    if (!c || !Array.isArray(c.elements)) throw new Error("not a catalog file, no `elements` array");
+    catalog = c;
+    lsKey = LS + ":" + (c.commit || c.generated || "x");
+    $("drop").hidden = true; $("app").hidden = false;
+    $("side-stat").textContent = c.elements.length + " els";
+    $("head-meta").textContent = "  " + c.attachPoints + " attach points · " +
+      ((c.groups && c.groups.length) || 0) + " groups" + (c.typesResolved ? " · types resolved" : "") +
+      (c.commit ? " · " + c.commit.slice(0, 7) : "");
+    renderList("");
+    renderEvents();
+    $("body").innerHTML = "<div class=\"empty\">pick an element on the left</div>";
+  }
+  function loadText(text, name) {
+    var json;
+    try { json = JSON.parse(text); } catch (e) { throw new Error((name || "file") + ": not valid JSON"); }
+    useCatalog(json);
+  }
+
+  var src = (location.search.match(/[?&]src=([^&]+)/) || [])[1];
+  var embedded = ($("precedence-catalog-data").textContent || "").replace(/^<!--EMBED-->$/, "").trim();
+  if (embedded) { try { useCatalog(JSON.parse(embedded)); } catch (e) { showDropErr(e.message); } }
+  else if (src) {
+    fetch(decodeURIComponent(src)).then(function (r) { return r.text(); })
+      .then(function (t) { loadText(t, src); })
+      .catch(function (e) { showDropErr("could not fetch " + src + ", " + e.message); });
+  }
+
+  function showDropErr(m) { var d = $("drop-err"); d.hidden = false; d.textContent = m; }
+
+  var zone = $("zone");
+  ["dragenter", "dragover"].forEach(function (ev) {
+    window.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.add("hot"); });
+  });
+  window.addEventListener("dragleave", function () { zone.classList.remove("hot"); });
+  window.addEventListener("drop", function (e) {
+    e.preventDefault(); zone.classList.remove("hot");
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    f.text().then(function (t) { try { loadText(t, f.name); } catch (err) { showDropErr(err.message); } });
+  });
+  $("filein").addEventListener("change", function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    f.text().then(function (t) { try { loadText(t, f.name); } catch (err) { showDropErr(err.message); } });
+  });
+  $("btn-reset").onclick = function () { $("app").hidden = true; $("drop").hidden = false; catalog = null; };
+
+  /* ---------------------------------------------------------------- sidebar */
+  function renderList(q) {
+    q = (q || "").toLowerCase();
+    var box = $("list"); box.textContent = "";
+    var byFile = {};
+    catalog.elements.forEach(function (e, i) {
+      var hay = (e.tag + " " + e.file + " " + (e.label || "") + " " + (e.component || "")).toLowerCase();
+      if (q && hay.indexOf(q) < 0) return;
+      (byFile[e.file] = byFile[e.file] || []).push(e);
+    });
+    var files = Object.keys(byFile).sort();
+    if (!files.length) { box.appendChild(el("div", "no matches", "file")); return; }
+    files.forEach(function (f) {
+      box.appendChild(el("div", f.replace(/.*\/src\//, "src/"), "file"));
+      byFile[f].forEach(function (e) {
+        var tracked = e.actions.some(function (a) { return trackedUnder(e, a); });
+        var it = el("div", null, "item" + (e.ref === currentRef ? " sel" : "") + (tracked ? " tracked" : ""));
+        it.appendChild(el("span", "<" + e.tag + ">"));
+        if (e.label) it.appendChild(el("span", " " + e.label, "n"));
+        it.appendChild(el("span", "  " + e.actions.map(function (a) { return a.name; }).join(","), "n"));
+        it.onclick = function () { openElement(e.ref); };
+        box.appendChild(it);
+      });
+    });
+  }
+  $("q").addEventListener("input", function (e) { renderList(e.target.value); });
+
+  function trackedUnder(entry, action) {
+    var ids = [action.attachId];
+    (function w(bs) { (bs || []).forEach(function (b) { ids.push(b.id); w(b.children); }); })(action.branches);
+    return ids.some(function (id) { return eventForNode(id); });
+  }
+
+  /* ---------------------------------------------------------------- events store */
+  function recall() {
+    var raw;
+    try { raw = JSON.parse(localStorage.getItem(lsKey) || "null"); } catch (e) { raw = null; }
+    if (raw && raw.schema === SCHEMA && raw.events && typeof raw.events === "object") return raw.events;
+    if (raw !== null) { try { localStorage.setItem(lsKey, JSON.stringify({ schema: SCHEMA, events: {} })); } catch (e) {} }
+    return {};
+  }
+  function save(events) { try { localStorage.setItem(lsKey, JSON.stringify({ schema: SCHEMA, events: events })); } catch (e) {} }
+  function nextKey() { var n = 0; Object.keys(recall()).forEach(function (k) { var d = +(k.split("_")[1] || 0); if (d > n) n = d; }); return "ev_" + (n + 1); }
+  function getEvent(k) { return recall()[k] || null; }
+  function putEvent(ev) { var a = recall(); a[ev.key] = ev; save(a); }
+  function dropEvent(k) { var a = recall(); delete a[k]; save(a); }
+  function eventForNode(id) {
+    var all = recall();
+    return Object.keys(all).map(function (k) { return all[k]; }).find(function (ev) {
+      return (ev.anchors || []).some(function (a) { return a.nodeId === id; });
+    }) || null;
+  }
+
+  function byRef(ref) { return catalog.elements.find(function (e) { return e.ref === ref; }) || null; }
+  function actionNode(a) {
+    return {
+      id: a.attachId, label: a.name, kind: "action", verb: a.verb,
+      codeAtPoint: a.preamble || [], candidateProps: a.candidateProps,
+      firesWhen: a.firesWhen, suggestedName: a.suggestedName, synthetic: a.synthetic,
+      autoProps: a.autoProps, children: a.branches || []
+    };
+  }
+  function candsOf(b) {
+    return (b.candidateProps || []).map(function (p) {
+      return { name: p.name, shape: p.shape, fields: p.observedFields || null, entity: !!p.entityCandidate, resolved: p.typeSource === "resolved", optional: !!p.optional };
+    });
+  }
+  function anchorFor(entry, action, b) {
+    var auto = action.autoProps || [];
+    return {
+      nodeId: b.id, ref: entry.ref, file: entry.file, anchorLine: b.anchorLine || action.anchorLine || entry.line,
+      fingerprint: b.kind === "action" ? action.fingerprint : (b.fingerprint || action.fingerprint),
+      element: entry.tag, component: entry.component, action: action.name,
+      branch: b.kind === "action" ? "any outcome" : b.label,
+      firesWhen: b.firesWhen || action.firesWhen,
+      inject: b.inject || "statement", synthetic: !!action.synthetic,
+      staticProps: {},
+      scopeNames: (b.candidateProps || []).map(function (p) { return p.name; }).concat(entry.dataInScope || []).concat(auto)
+    };
+  }
+  function newEvent(entry, action, b) {
+    var cs = candsOf(b);
+    var ev = { key: nextKey(), name: b.suggestedName || action.suggestedName || "event",
+      description: b.firesWhen || action.firesWhen || "", candidates: cs,
+      properties: cs.map(function (c) { return c.name; }), extra: [], anchors: [anchorFor(entry, action, b)] };
+    putEvent(ev); return ev;
+  }
+  function addAnchor(key, entry, action, b) {
+    var ev = getEvent(key); if (!ev) return;
+    if (ev.anchors.some(function (a) { return a.nodeId === b.id; })) return;
+    ev.anchors.push(anchorFor(entry, action, b));
+    var have = {}; ev.candidates.forEach(function (c) { have[c.name] = 1; });
+    candsOf(b).forEach(function (c) { if (!have[c.name]) ev.candidates.push(c); });
+    putEvent(ev);
+  }
+  function removeAnchor(key, id) {
+    var ev = getEvent(key); if (!ev) return;
+    ev.anchors = ev.anchors.filter(function (a) { return a.nodeId !== id; });
+    if (!ev.anchors.length) dropEvent(key); else putEvent(ev);
+  }
+  function toggleNode(entry, action, b) {
+    var ev = eventForNode(b.id);
+    if (ev) { removeAnchor(ev.key, b.id); return null; }
+    if (linkTo && getEvent(linkTo)) { addAnchor(linkTo, entry, action, b); return getEvent(linkTo); }
+    return newEvent(entry, action, b);
+  }
+  function setProp(key, name, on) { var ev = getEvent(key); if (!ev) return; var s = new Set(ev.properties); if (on) s.add(name); else s.delete(name); ev.properties = Array.from(s); putEvent(ev); }
+  function setAmbient(key, prop, on) {
+    var ev = getEvent(key); if (!ev) return;
+    var s = new Set(ev.properties); ev.accessors = ev.accessors || {};
+    if (on) { s.add(prop.name); ev.accessors[prop.name] = prop.accessor || prop.via; }
+    else { s.delete(prop.name); delete ev.accessors[prop.name]; }
+    ev.properties = Array.from(s); putEvent(ev);
+  }
+  function setExtra(key, list) { var ev = getEvent(key); if (!ev) return; ev.extra = list.map(function (x) { return x.trim(); }).filter(Boolean); putEvent(ev); }
+  function renameEvent(key, name) { var ev = getEvent(key); if (!ev) return; ev.name = (name || "").trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || ev.name; putEvent(ev); }
+  function describeEvent(key, description) { var ev = getEvent(key); if (!ev) return; ev.description = (description || "").trim(); putEvent(ev); }
+
+  function groupMembers(k) { var g = (catalog.groups || []).find(function (x) { return x.key === k; }); return g ? g.members : []; }
+  function trackWholeGroup(entry) {
+    var a0 = entry.actions[0]; if (!a0) return;
+    var key = newEvent(entry, a0, actionNode(a0)).key;
+    groupMembers(entry.group).forEach(function (mem) {
+      if (mem.ref === entry.ref) return;
+      var e = byRef(mem.ref); var a = e && e.actions[0];
+      if (a) addAnchor(key, e, a, actionNode(a));
+    });
+    var ev = getEvent(key);
+    ev.anchors.forEach(function (x) { x.staticProps = { placement: x.component || x.file.split(/[\\/]/).pop() }; });
+    putEvent(ev);
+    return ev;
+  }
+
+  /* ---- outcome as a property: one event at the action, an anchor per branch ---- */
+  function terminalBranches(action) {
+    var out = [];
+    (function w(bs) { (bs || []).forEach(function (b) { if (b.terminal) out.push(b); w(b.children); }); })(action.branches);
+    return out;
+  }
+  function trackAllOutcomes(entry, action) {
+    var terms = terminalBranches(action);
+    if (terms.length < 2) return;
+    var key = newEvent(entry, action, actionNode(action)).key;
+    terms.forEach(function (b) { addAnchor(key, entry, action, b); });
+    var ev = getEvent(key);
+    ev.outcomeProp = "outcome";
+    ev.anchors = ev.anchors.filter(function (a) { return a.nodeId !== action.attachId; });
+    ev.anchors.forEach(function (a) {
+      var b = terms.find(function (t) { return t.id === a.nodeId; });
+      a.staticProps = { outcome: (b && b.path) || a.branch };
+    });
+    putEvent(ev);
+    return ev;
+  }
+  function setOutcomeValue(key, nodeId, value) {
+    var ev = getEvent(key); if (!ev) return;
+    var a = ev.anchors.find(function (x) { return x.nodeId === nodeId; });
+    var p = ev.outcomeProp || "outcome";
+    if (a && value.trim()) { a.staticProps = a.staticProps || {}; a.staticProps[p] = value.trim(); putEvent(ev); }
+  }
+  function renameOutcomeProp(key, name) {
+    var ev = getEvent(key); if (!ev) return;
+    var clean = (name || "").trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "outcome";
+    var old = ev.outcomeProp || "outcome";
+    if (clean === old) return;
+    ev.anchors.forEach(function (a) { if (a.staticProps && old in a.staticProps) { a.staticProps[clean] = a.staticProps[old]; delete a.staticProps[old]; } });
+    ev.outcomeProp = clean; putEvent(ev);
+  }
+
+  function propStatusAt(name, anchor) {
+    var head = name.split(/[.[]/)[0];
+    if ((anchor.scopeNames || []).indexOf(head) >= 0) return "ok";
+    if (AMBIENT.test(name)) return "amb";
+    return "bad";
+  }
+  function worstStatus(name, ev) {
+    var s = "ok";
+    (ev.anchors || []).forEach(function (a) { var t = propStatusAt(name, a); if (t === "bad") s = "bad"; else if (t === "amb" && s === "ok") s = "amb"; });
+    return s;
+  }
+  function classifyExtra(name, ev) {
+    var head = name.split(/[.[]/)[0];
+    var inAll = (ev.anchors || []).length && ev.anchors.every(function (a) { return (a.scopeNames || []).indexOf(head) >= 0; });
+    if (inAll || ev.candidates.some(function (c) { return c.name === head; })) return { k: "ok", t: "✓ in scope" };
+    if (AMBIENT.test(name)) return { k: "amb", t: "~ ambient (build maps it)" };
+    return { k: "bad", t: "⚠ needs wiring" };
+  }
+
+  /* ---------------------------------------------------------------- render */
+  function openElement(ref) {
+    currentRef = ref;
+    renderList($("q").value);
+    renderDetail();
+  }
+  function refresh() { renderList($("q").value); renderDetail(); renderEvents(); }
+
+  function renderDetail() {
+    var body = $("body"); body.textContent = "";
+    var entry = currentRef && byRef(currentRef);
+    if (!entry) { body.innerHTML = "<div class=\"empty\">pick an element on the left</div>"; return; }
+
+    if (linkTo && getEvent(linkTo)) {
+      var lm = el("div", null, "linkmode");
+      lm.appendChild(el("span", "＋ linking, the next ○ you click joins \"" + getEvent(linkTo).name + "\".  "));
+      var stop = el("button", "done"); stop.onclick = function () { linkTo = null; refresh(); };
+      lm.appendChild(stop); body.appendChild(lm);
+    }
+
+    body.appendChild(el("div", "<" + entry.tag + ">" + (entry.label ? "  " + entry.label : ""), "el"));
+    body.appendChild(el("div", entry.component + "  ·  " + entry.ref +
+      (entry.renderedPerItem ? "  ·  per " + entry.renderedPerItem.item + " in " + entry.renderedPerItem.source : ""), "loc"));
+
+    if (entry.group) {
+      var mem = groupMembers(entry.group);
+      if (mem.length > 1) {
+        var big = mem.length > 10;
+        var bn = el("div", null, "banner");
+        bn.appendChild(el("span", "The same control is authored in "));
+        bn.appendChild(el("b", mem.length + " places"));
+        bn.appendChild(el("span", big ? ". Check the list before binding one event to all." : ". One event can fire from all of them."));
+        var ul = el("ul");
+        mem.slice(0, big ? 6 : mem.length).forEach(function (m) {
+          ul.appendChild(el("li")).appendChild(el("span", m.ref.replace(/.*\/src\//, "src/") + (m.label ? "  " + m.label : ""), "fx"));
+        });
+        if (big) ul.appendChild(el("li")).appendChild(el("span", "…and " + (mem.length - 6) + " more", "fx"));
+        bn.appendChild(ul);
+        var gb = el("button", "track all " + mem.length + " as one event");
+        gb.onclick = function () { var ev = trackWholeGroup(entry); if (ev) expanded[ev.key] = true; refresh(); };
+        bn.appendChild(gb);
+        body.appendChild(bn);
+      }
+    }
+
+    entry.actions.forEach(function (a) {
+      var ul = el("ul");
+      ul.appendChild(nodeLi(entry, a, actionNode(a)));
+      body.appendChild(ul);
+    });
+  }
+
+  function nodeLi(entry, action, b) {
+    var li = el("li");
+    var isAction = b.kind === "action";
+    var ev = eventForNode(b.id);
+    var on = !!ev;
+    var row = el("div", null, "br" + (on ? " on" : "") + (isAction ? " act-row" : ""));
+    var dot = el("span", on ? "✓" : "", "dot");
+    dot.onclick = function (e) { e.stopPropagation(); var r = toggleNode(entry, action, b); if (r) expanded[r.key] = true; refresh(); };
+    row.appendChild(dot);
+    row.appendChild(el("span", b.label, "lab"));
+    if (isAction) row.appendChild(el("span", "  " + (b.verb || "") +
+      (action.synthetic ? "  ·  no handler, build adds a listener" : (b.children.length ? "  ·  any outcome" : "")), "kind" + (action.synthetic ? " syn" : "")));
+    else if (b.kind && b.kind !== "if") row.appendChild(el("span", b.kind, "kind"));
+    if (on) row.appendChild(el("span", ev.name + (ev.anchors.length > 1 ? " ×" + ev.anchors.length : ""), "pill"));
+    row.onclick = function (e) {
+      e.stopPropagation();
+      var cur = eventForNode(b.id);
+      if (cur) { expanded[cur.key] = !expanded[cur.key]; refresh(); }
+      else { var r = toggleNode(entry, action, b); if (r) expanded[r.key] = true; refresh(); }
+    };
+    li.appendChild(row);
+
+    if (isAction && !on && !linkTo && terminalBranches(action).length >= 2) {
+      var oc = el("div", null, "br");
+      oc.style.cssText = "cursor:pointer;color:var(--accent);font-size:12px";
+      oc.appendChild(el("span", "", "dot"));
+      oc.appendChild(el("span", "＋ track as one event · " + terminalBranches(action).length + " outcomes → an `outcome` property"));
+      oc.onclick = function (e) { e.stopPropagation(); var r = trackAllOutcomes(entry, action); if (r) expanded[r.key] = true; refresh(); };
+      li.appendChild(oc);
+    }
+
+    if (on && expanded[ev.key]) li.appendChild(renderEditor(ev.key));
+    if ((b.codeAtPoint || []).length) {
+      var fx = el("ul");
+      b.codeAtPoint.forEach(function (s) { fx.appendChild(el("li")).appendChild(el("span", "→ " + s, "fx")); });
+      li.appendChild(fx);
+    }
+    if ((b.children || []).length) {
+      var cu = el("ul");
+      b.children.forEach(function (c) { cu.appendChild(nodeLi(entry, action, c)); });
+      li.appendChild(cu);
+    }
+    return li;
+  }
+
+  function renderEditor(key) {
+    var ev = getEvent(key);
+    var box = el("div", null, "ed");
+    box.setAttribute("data-ev", key);
+    box.onclick = function (e) { e.stopPropagation(); };
+
+    box.appendChild(el("div", "event name", "ed-h"));
+    var nm = el("input"); nm.className = "ed-name"; nm.value = ev.name;
+    nm.onchange = function () { renameEvent(key, nm.value); refresh(); };
+    box.appendChild(nm);
+
+    box.appendChild(el("div", "what this event means", "ed-h"));
+    var ds = el("textarea"); ds.className = "ed-name"; ds.rows = 3;
+    ds.value = ev.description || "";
+    ds.placeholder = "Business definition, success criteria, and exclusions";
+    ds.onchange = function () { describeEvent(key, ds.value); refresh(); };
+    box.appendChild(ds);
+
+    box.appendChild(el("div", "properties to send", "ed-h"));
+    if (!ev.candidates.length) box.appendChild(el("div", "none detected, add below", "fx"));
+    ev.candidates.forEach(function (c) {
+      var st = worstStatus(c.name, ev);
+      var row = el("label", null, "ed-p");
+      var cb = el("input"); cb.type = "checkbox"; cb.checked = ev.properties.indexOf(c.name) >= 0;
+      cb.onchange = function () { setProp(key, c.name, cb.checked); refresh(); };
+      row.appendChild(cb);
+      row.appendChild(el("span", c.name, "ed-pn"));
+      if (c.shape === "object" && c.fields) row.appendChild(el("span", " {" + c.fields.slice(0, 4).join(", ") + (c.fields.length > 4 ? "…" : "") + "}", "ed-pf"));
+      if (c.resolved) row.appendChild(el("span", " typed", "ed-pf"));
+      if (c.optional) row.appendChild(el("span", " ?", "ed-pf"));
+      if (c.entity) row.appendChild(el("span", " ↗ entity", "ed-pe"));
+      if (ev.anchors.length > 1 && st !== "ok") row.appendChild(el("span", st === "amb" ? " ~ambient" : " ⚠ missing at some places", "ed-pe"));
+      box.appendChild(row);
+    });
+
+    var ambient = (catalog && catalog.ambientProps) || [];
+    if (ambient.length) {
+      box.appendChild(el("div", "app state, localStorage / context", "ed-h"));
+      ambient.forEach(function (p) {
+        var row = el("label", null, "ed-p");
+        var cb = el("input"); cb.type = "checkbox"; cb.checked = ev.properties.indexOf(p.name) >= 0;
+        cb.onchange = function () { setAmbient(key, p, cb.checked); refresh(); };
+        row.appendChild(cb);
+        row.appendChild(el("span", p.name, "ed-pn"));
+        row.appendChild(el("span", " " + p.source + (p.identity ? "  ⚑ identity" : ""), p.identity ? "ed-pe" : "ed-pf"));
+        box.appendChild(row);
+      });
+    }
+
+    box.appendChild(el("div", "add a property (comma-separated)", "ed-h"));
+    var ex = el("input"); ex.className = "ed-name"; ex.value = (ev.extra || []).join(", ");
+    ex.placeholder = "e.g. referrer, variant";
+    ex.onchange = function () { setExtra(key, ex.value.split(",")); refresh(); };
+    box.appendChild(ex);
+    (ev.extra || []).forEach(function (n) {
+      var c = classifyExtra(n, ev);
+      var chip = el("div", null, "ed-x " + c.k);
+      chip.appendChild(el("span", n, "ed-pn"));
+      chip.appendChild(el("span", " " + c.t, "t"));
+      box.appendChild(chip);
+    });
+
+    if (ev.outcomeProp) {
+      box.appendChild(el("div", "outcome, which branch fired (edit the values)", "ed-h"));
+      var pn = el("input"); pn.className = "ed-name"; pn.value = ev.outcomeProp;
+      pn.onchange = function () { renameOutcomeProp(key, pn.value); refresh(); };
+      box.appendChild(pn);
+      ev.anchors.forEach(function (a) {
+        var row = el("div", null, "ed-p");
+        var iv = el("input"); iv.className = "ed-name"; iv.style.width = "42%";
+        iv.value = (a.staticProps || {})[ev.outcomeProp] || "";
+        iv.onchange = function () { setOutcomeValue(key, a.nodeId, iv.value); refresh(); };
+        row.appendChild(iv);
+        row.appendChild(el("span", " ← " + (a.firesWhen || a.branch || "").replace(/^Fires when [^,]+,?\s*(and )?/, ""), "ed-pf"));
+        box.appendChild(row);
+      });
+    }
+
+    box.appendChild(el("div", "fires from (" + ev.anchors.length + ")", "ed-h"));
+    ev.anchors.forEach(function (a) {
+      var line = el("div", null, "ed-anch");
+      var rm = el("span", "remove", "rm");
+      rm.onclick = function () { removeAnchor(key, a.nodeId); if (!getEvent(key)) delete expanded[key]; refresh(); };
+      line.appendChild(rm);
+      line.appendChild(el("span", a.file.replace(/.*\/src\//, "src/") + ":" + a.anchorLine + "  " + a.element + " " + a.action +
+        (a.branch && a.branch !== "any outcome" ? " · " + a.branch : "") +
+        (Object.keys(a.staticProps || {}).length ? "  {" + Object.keys(a.staticProps).map(function (k) { return k + ":" + a.staticProps[k]; }).join(",") + "}" : "")));
+      box.appendChild(line);
+    });
+    var add = el("button", linkTo === key ? "pick another element →" : "＋ add another element");
+    add.onclick = function () { linkTo = key; refresh(); flash("pick a node in another element on the left"); };
+    box.appendChild(add);
+    if (linkTo === key) {
+      var doneB = el("button", "done linking");
+      doneB.onclick = function () { linkTo = null; refresh(); };
+      box.appendChild(doneB);
+    }
+
+    var staticKeys = {};
+    ev.anchors.forEach(function (a) { Object.keys(a.staticProps || {}).forEach(function (k) { staticKeys[k] = 1; }); });
+    var all = ev.properties.concat(ev.extra || [], Object.keys(staticKeys));
+    box.appendChild(el("div", "→ track(\"" + ev.name + "\"" + (all.length ? ", { " + all.join(", ") + " }" : "") + ")", "ed-preview"));
+
+    var det0 = el("details", null, "ed-json"); det0.open = true;
+    det0.appendChild(el("summary", "sample event"));
+    var pre0 = el("pre"); pre0.textContent = JSON.stringify(samplePayload(ev), null, 2); det0.appendChild(pre0);
+    box.appendChild(det0);
+
+    var jsonStr = JSON.stringify(eventExport(ev), null, 2);
+    var det = el("details", null, "ed-json");
+    det.appendChild(el("summary", "plan entry"));
+    var pre = el("pre"); pre.textContent = jsonStr; det.appendChild(pre);
+    var cj = el("button", "copy this event");
+    cj.onclick = function (ce) {
+      ce.stopPropagation();
+      (navigator.clipboard ? navigator.clipboard.writeText(jsonStr) : Promise.reject())
+        .then(function () { flash("copied " + ev.name); }, function () { console.log(jsonStr); flash("logged to console"); });
+    };
+    det.appendChild(cj);
+    box.appendChild(det);
+    return box;
+  }
+
+  function jumpToEvent(k) {
+    var ev = getEvent(k), a0 = ev && ev.anchors[0];
+    if (!a0) return;
+    var entry = byRef(a0.ref);
+    if (!entry) return;
+    expanded[k] = true;
+    openElement(entry.ref);
+    var ed = document.querySelector('#body [data-ev="' + k + '"]');
+    if (ed && ed.scrollIntoView) ed.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  function renderEvents() {
+    var box = $("events"); box.textContent = "";
+    var all = recall(); var keys = Object.keys(all);
+    box.appendChild(el("h4", "Tracked events (" + keys.length + ") ,  click to jump"));
+    keys.forEach(function (k) {
+      var e = all[k];
+      var props = (e.properties || []).concat(e.extra || []);
+      var a0 = e.anchors[0] || {};
+      var row = el("div", null, "ev");
+      var rm = el("span", "✕", "ev-rm");
+      rm.title = "remove event";
+      rm.onclick = function (ce) { ce.stopPropagation(); dropEvent(k); delete expanded[k]; refresh(); };
+      row.appendChild(rm);
+      row.appendChild(el("span", e.name, "ev-n"));
+      if (e.description) row.appendChild(el("span", " — " + e.description, "ev-w"));
+      row.appendChild(el("span", "(" + props.join(", ") + ")", "ev-p"));
+      row.appendChild(el("span", "  " + (a0.element || "") + " " + (a0.action || "") + (e.anchors.length > 1 ? "  ×" + e.anchors.length : ""), "ev-w"));
+      row.onclick = function () { jumpToEvent(k); };
+      box.appendChild(row);
+    });
+  }
+
+  /* a mock of the analytics payload this event would send at runtime */
+  function samplePayload(ev) {
+    var props = {};
+    var ids = ev.anchors.map(function (a) { return a.nodeId; });
+    props.pm_id = ids.length === 1 ? ids[0] : ids;
+    (ev.properties || []).forEach(function (name) {
+      var c = (ev.candidates || []).filter(function (x) { return x.name === name; })[0];
+      if (c && c.shape === "object" && c.fields && c.fields.length) {
+        var o = {}; c.fields.forEach(function (f) { o[f] = "‹" + f + "›"; }); props[name] = o;
+      } else props[name] = "‹" + name + "›";
+    });
+    (ev.extra || []).forEach(function (name) { props[name] = "‹" + name + "›"; });
+    var disc = {};
+    ev.anchors.forEach(function (a) {
+      Object.keys(a.staticProps || {}).forEach(function (k) {
+        (disc[k] = disc[k] || []); if (disc[k].indexOf(a.staticProps[k]) < 0) disc[k].push(a.staticProps[k]);
+      });
+    });
+    Object.keys(disc).forEach(function (k) { props[k] = disc[k].length === 1 ? disc[k][0] : disc[k]; });
+    return { event: ev.name, properties: props };
+  }
+
+  /* the exact export object for ONE event, shared by btn-copy + the editor JSON view */
+  function eventExport(e) {
+    var unresolved = (e.extra || []).filter(function (n) { return classifyExtra(n, e).k === "bad"; });
+    var staticKeys = {};
+    e.anchors.forEach(function (a) { Object.keys(a.staticProps || {}).forEach(function (n) { staticKeys[n] = 1; }); });
+    var acc = {};
+    Object.keys(e.accessors || {}).forEach(function (k) { if ((e.properties || []).indexOf(k) >= 0) acc[k] = e.accessors[k]; });
+    return {
+      name: e.name,
+      description: e.description || undefined,
+      properties: (e.properties || []).concat(
+        (e.extra || []).filter(function (n) { return unresolved.indexOf(n) < 0; }),
+        Object.keys(staticKeys)
+      ),
+      accessors: Object.keys(acc).length ? acc : undefined,
+      unresolved: unresolved.length ? unresolved : undefined,
+      outcomeProp: e.outcomeProp || undefined,
+      anchors: e.anchors.map(function (a) {
+        return {
+          id: a.nodeId, fingerprint: a.fingerprint,
+          file: a.file, line: a.anchorLine, element: a.element, action: a.action, branch: a.branch,
+          firesWhen: a.firesWhen, inject: a.synthetic ? "delegated-listener" : a.inject,
+          staticProps: Object.keys(a.staticProps || {}).length ? a.staticProps : undefined,
+          missingProps: (e.properties || []).filter(function (n) { return propStatusAt(n, a) === "bad"; })
+        };
+      })
+    };
+  }
+
+  $("btn-copy").onclick = function () {
+    var all = recall();
+    var out = {
+      tool: "precedence-viewer", commit: catalog.commit, generated: new Date().toISOString(),
+      events: Object.keys(all).map(function (k) { return eventExport(all[k]); })
+    };
+    var s = JSON.stringify(out, null, 2);
+    (navigator.clipboard ? navigator.clipboard.writeText(s) : Promise.reject()).then(
+      function () { flash("copied " + out.events.length + " events"); },
+      function () { console.log(s); flash("logged to console"); }
+    );
+  };
+})();
+</script>
+</body>
+</html>
