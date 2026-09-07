@@ -9,8 +9,7 @@ import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { loadCatalog } = await import(pathToFileURL(path.resolve(here, "../dist/model.js")).href);
-const { renderHtml } = await import(pathToFileURL(path.resolve(here, "../dist/render.js")).href);
+const { loadCatalog, renderHtml, servePlan } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
 
 let fails = 0;
 const check = (name, ok, detail) => {
@@ -55,6 +54,35 @@ const evil = renderHtml({ tool: "precedence", elements: [], note: "</script><scr
 const blob = evil.split('id="precedence-catalog-data"')[1].split("</script>")[0];
 check("renderHtml: escapes < / > in the blob so it can't break out of the data script tag",
   !blob.includes("<script>") && !blob.includes("</script>") && blob.includes("\\u003c"));
+
+check("renderHtml: no postUrl -> precedence-post stays an inert placeholder",
+  /<script id="precedence-post"[^>]*><!--POST--><\/script>/.test(renderHtml(cat)));
+check("renderHtml: postUrl -> precedence-post carries it as JSON",
+  renderHtml(cat, { postUrl: "/plan" }).includes('<script id="precedence-post" type="application/json">"/plan"</script>'));
+
+/* ---- servePlan: the local receiver behind `precedence-view --serve` / the wizard ---- */
+{
+  const http = await import("node:http");
+  let url;
+  const planPromise = servePlan(cat, { open: false, onListen: (u) => { url = u; } });
+  await new Promise((r) => setTimeout(r, 50));
+  check("servePlan: listens on 127.0.0.1 and reports its URL", /^http:\/\/127\.0\.0\.1:\d+\/$/.test(url || ""));
+
+  const page = await (await fetch(url)).text();
+  check("servePlan: GET / serves the picker with the catalog baked in and post pointed at /plan",
+    page.includes('"a.tsx#A::button"') && page.includes('<script id="precedence-post" type="application/json">"/plan"</script>'));
+
+  const sent = { tool: "precedence-viewer", events: [{ name: "e1", properties: [], anchors: [] }] };
+  const ack = await fetch(url + "plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sent) });
+  check("servePlan: POST /plan is acknowledged", ack.ok);
+  const got = await planPromise;
+  check("servePlan: resolves with exactly the posted plan", JSON.stringify(got) === JSON.stringify(sent));
+  check("servePlan: the server is closed once it has a plan",
+    await fetch(url).then(() => false, () => true));
+
+  const timedOut = await servePlan(cat, { open: false, timeoutMs: 60 }).then(() => null, (e) => e.message);
+  check("servePlan: rejects on timeout with a clear message", /timed out/.test(timedOut || ""));
+}
 
 /* ---- index.html: guard the two things a silent edit could break — the script
  * must parse, and eventExport() must keep the shape instrument resolves against.

@@ -20,7 +20,17 @@ future work.
 
 **In the browser:** open `index.html`, drop a `catalog.pcs` on it (or `?src=<url>`).
 
-**Baked (share / CI):** `precedence-view` bakes a catalog into a copy of the page.
+**Served (`--serve`):** run a local server, open the picker, and write the plan
+the moment you click "send to wizard" — no file to move. This is what
+`@precedence/wizard` uses.
+
+```
+precedence-view catalog.pcs --serve                 # writes ./.precedence/plan.json
+precedence-view catalog.pcs --serve --out plan.json
+```
+
+**Baked (share / CI):** `precedence-view` writes a self-contained copy with the
+catalog pre-loaded.
 
 ```
 precedence-view catalog.pcs --open
@@ -30,9 +40,12 @@ precedence --dir src --stdout | precedence-view -
 
 | flag | meaning |
 | --- | --- |
-| `--out <file>` | HTML output (default `./viz/index.html`) |
-| `--open` | open it when written |
-| `--stdout` | write the HTML to stdout |
+| `--serve` | serve the picker on `127.0.0.1`, write the exported plan |
+| `--out <file>` | bake: HTML path (default `./viz/index.html`); serve: plan path (`-` for stdout) |
+| `--open` | bake: open it when written (serve always opens) |
+| `--stdout` | bake: write the HTML to stdout |
+
+`servePlan(catalog)` and `renderHtml(catalog)` are also exported for use from Node.
 
 ## What it does not do
 

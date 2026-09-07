@@ -1,40 +1,35 @@
 #!/usr/bin/env node
 /**
- * the precedence-view CLI bakes a `catalog.pcs` into a self-contained HTML
- * viewer (the same page as the live drag-and-drop frontend, with the catalog
- * pre-loaded). For sharing or CI artifacts.
+ * the precedence-view CLI. Two modes:
  *
- *   precedence-view catalog.pcs
- *   precedence-view ./build            # first catalog.pcs in a dir
- *   precedence --stdout | precedence-view -
+ *   precedence-view catalog.pcs [--open]        bake a self-contained HTML copy
+ *   precedence-view catalog.pcs --serve         serve the picker, write the export
  *
  * `catalog.pcs` is plain JSON; the `.pcs` extension is just a label. A `.json`
- * file is still accepted.
+ * file is still accepted. `-` reads the catalog from stdin.
  */
 import * as fs from "fs";
 import * as path from "path";
-import { execFile } from "child_process";
 
 import { loadCatalog } from "./model";
 import { renderHtml } from "./render";
+import { servePlan } from "./serve";
+import { openInBrowser } from "./open";
 
-interface Opts { input: string; out: string; open: boolean; stdout: boolean; }
+interface Opts { input: string; out: string; open: boolean; stdout: boolean; serve: boolean; }
 
 const HELP = `precedence-view, a browser for catalog.pcs
 
-  The frontend is index.html: open it and drop a catalog.pcs onto it, or pass
-  ?src=<url>. This CLI is the batch path, it bakes the same viewer with a
-  catalog already loaded.
-
 USAGE
-  precedence-view <catalog.pcs>        a catalog file (.pcs or .json)
-  precedence-view <dir>                first catalog.pcs in a dir
-  precedence-view -                    read the catalog from stdin
+  precedence-view <catalog.pcs>        a catalog file (.pcs or .json), a dir, or -
+  precedence-view <catalog.pcs> --serve
 
 OPTIONS
-  --out <file>   HTML output path       (default ./viz/index.html)
-  --open         open it when written
-  --stdout       write the HTML to stdout
+  --serve        serve the picker on 127.0.0.1 and write the exported plan
+  --out <file>   bake mode: HTML output (default ./viz/index.html)
+                 serve mode: plan output (default ./.precedence/plan.json, - for stdout)
+  --open         bake mode: open the file when written (serve mode always opens)
+  --stdout       bake mode: write the HTML to stdout
   -h, --help
 `;
 
@@ -44,10 +39,11 @@ function fail(msg: string): never {
 }
 
 function parseArgs(argv: string[]): Opts {
-  const o: Opts = { input: "", out: path.join("viz", "index.html"), open: false, stdout: false };
+  const o: Opts = { input: "", out: "", open: false, stdout: false, serve: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") { process.stdout.write(HELP); process.exit(0); }
+    else if (a === "--serve") o.serve = true;
     else if (a === "--out") { o.out = argv[++i] ?? fail("missing value for --out"); }
     else if (a === "--open") o.open = true;
     else if (a === "--stdout") o.stdout = true;
@@ -58,32 +54,37 @@ function parseArgs(argv: string[]): Opts {
   return o;
 }
 
-function openInBrowser(file: string): void {
-  const target = path.resolve(file);
-  const cmd = process.platform === "win32" ? { file: "cmd", args: ["/c", "start", "", target] }
-    : process.platform === "darwin" ? { file: "open", args: [target] }
-    : { file: "xdg-open", args: [target] };
-  execFile(cmd.file, cmd.args, (err) => {
-    if (err) process.stderr.write(`note: could not open a browser (${err.message})\n`);
-  });
-}
-
-function main(): void {
+async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   const { catalog, source, errors } = loadCatalog(opts.input);
   for (const e of errors) process.stderr.write(`error: ${e}\n`);
   if (!catalog) process.exit(1);
 
+  if (opts.serve) {
+    const out = opts.out || path.join(".precedence", "plan.json");
+    process.stderr.write(`  from ${source}: ${catalog.elements.length} elements, ${catalog.attachPoints ?? "?"} attach points\n`);
+    const plan = await servePlan(catalog, { onListen: (url) => process.stderr.write(`  picker: ${url}\n  waiting for the export...\n`) });
+    const json = JSON.stringify(plan, null, 2) + "\n";
+    if (out === "-") { process.stdout.write(json); return; }
+    fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+    fs.writeFileSync(out, json);
+    process.stderr.write(`  wrote ${out}\n`);
+    return;
+  }
+
   const html = renderHtml(catalog);
   if (opts.stdout) { process.stdout.write(html); return; }
-
-  fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
-  fs.writeFileSync(opts.out, html);
+  const out = opts.out || path.join("viz", "index.html");
+  fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+  fs.writeFileSync(out, html);
   process.stdout.write(
-    `precedence-view -> ${opts.out}\n` +
-    `  from ${source}: ${catalog.elements.length} elements, ${catalog.attachPoints ?? "?"} attach points\n`
+    `precedence-view -> ${out}\n` +
+    `  from ${source}: ${catalog.elements.length} elements, ${catalog.attachPoints ?? "?"} attach points\n`,
   );
-  if (opts.open) openInBrowser(opts.out);
+  if (opts.open) openInBrowser(out);
 }
 
-main();
+main().catch((err) => {
+  process.stderr.write(`error: ${err instanceof Error ? err.message : err}\n`);
+  process.exit(1);
+});

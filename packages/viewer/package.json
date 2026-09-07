@@ -6,8 +6,8 @@
   "bin": {
     "precedence-view": "bin/precedence-view.js"
   },
-  "main": "dist/render.js",
-  "types": "dist/render.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
     "dist/",
     "bin/",

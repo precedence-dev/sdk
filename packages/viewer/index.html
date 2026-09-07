@@ -121,6 +121,9 @@
   #events .ev:hover .ev-rm { opacity: 1; }
   #flash { position: fixed; bottom: 16px; right: 16px; background: var(--ok); color: #fff; padding: 6px 12px;
     border-radius: 6px; font: 12px system-ui; }
+  body.sent::after { content: "Sent to the wizard. You can close this tab and go back to your terminal.";
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 24px; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); z-index: 9999; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -157,11 +160,16 @@
 </div>
 
 <script id="precedence-catalog-data" type="application/json"><!--EMBED--></script>
+<script id="precedence-post" type="application/json"><!--POST--></script>
 <script>
 (function () {
   "use strict";
   var SCHEMA = 4;
   var catalog = null;
+  var POST_URL = (function () {
+    var t = document.getElementById("precedence-post");
+    try { return JSON.parse((t && t.textContent) || "null"); } catch (e) { return null; }
+  })();
   var LS = "precedence:viewer";   // + ":" + catalog commit
   var lsKey = LS;
   var currentRef = null;
@@ -713,6 +721,8 @@
     };
   }
 
+  if (POST_URL) $("btn-copy").textContent = "send to wizard";
+
   $("btn-copy").onclick = function () {
     var all = recall();
     var out = {
@@ -720,6 +730,16 @@
       events: Object.keys(all).map(function (k) { return eventExport(all[k]); })
     };
     var s = JSON.stringify(out, null, 2);
+    if (POST_URL) {
+      fetch(POST_URL, { method: "POST", headers: { "content-type": "application/json" }, body: s })
+        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); })
+        .then(function () { flash("sent " + out.events.length + " events — switch back to your terminal"); document.body.classList.add("sent"); })
+        .catch(function () {
+          flash("couldn't reach the wizard; copied to the clipboard instead");
+          if (navigator.clipboard) navigator.clipboard.writeText(s); else console.log(s);
+        });
+      return;
+    }
     (navigator.clipboard ? navigator.clipboard.writeText(s) : Promise.reject()).then(
       function () { flash("copied " + out.events.length + " events"); },
       function () { console.log(s); flash("logged to console"); }

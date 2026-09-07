@@ -1,10 +1,12 @@
 /**
- * the precedence-view renderer (CLI path) bakes a catalog into a copy of `index.html`.
+ * the precedence-view renderer bakes a catalog into a copy of `index.html`.
  *
  * The viewer (CSS + all the tree / editor / export logic) lives ONLY in
  * `index.html`, which is also the live drag-and-drop frontend. When its
- * `<script id="precedence-catalog-data">` blob is non-empty it skips the drop screen and
- * opens that catalog directly. The CLI just fills that one tag.
+ * `<script id="precedence-catalog-data">` blob is non-empty it skips the drop
+ * screen and opens that catalog directly. The CLI just fills that one tag; the
+ * serve path (see serve.ts) also fills `precedence-post` so Export POSTs the
+ * plan back instead of copying it to the clipboard.
  */
 import * as fs from "fs";
 import * as path from "path";
@@ -13,6 +15,7 @@ import type { Catalog } from "./model";
 
 const TEMPLATE = path.join(__dirname, "..", "index.html");
 const DATA_TAG = /<script id="precedence-catalog-data"[^>]*>[\s\S]*?<\/script>/;
+const POST_TAG = /<script id="precedence-post"[^>]*>[\s\S]*?<\/script>/;
 
 /** escape for embedding in <script>: `<`/`>` and the JS line terminators U+2028/9 */
 function embed(data: unknown): string {
@@ -20,18 +23,17 @@ function embed(data: unknown): string {
   return JSON.stringify(data).replace(hazards, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
 }
 
-export function renderHtml(catalog: Catalog): string {
+export function renderHtml(catalog: Catalog, opts: { postUrl?: string } = {}): string {
   let template: string;
   try {
     template = fs.readFileSync(TEMPLATE, "utf8");
   } catch {
     throw new Error(`precedence-view: cannot read the viewer template at ${TEMPLATE}`);
   }
-  if (!DATA_TAG.test(template)) {
-    throw new Error('precedence-view: index.html has no <script id="precedence-catalog-data"> tag to fill');
+  if (!DATA_TAG.test(template) || !POST_TAG.test(template)) {
+    throw new Error("precedence-view: index.html is missing its precedence-catalog-data / precedence-post tags");
   }
-  return template.replace(
-    DATA_TAG,
-    `<script id="precedence-catalog-data" type="application/json">${embed(catalog)}</script>`
-  );
+  return template
+    .replace(DATA_TAG, `<script id="precedence-catalog-data" type="application/json">${embed(catalog)}</script>`)
+    .replace(POST_TAG, `<script id="precedence-post" type="application/json">${opts.postUrl ? embed(opts.postUrl) : "<!--POST-->"}</script>`);
 }
