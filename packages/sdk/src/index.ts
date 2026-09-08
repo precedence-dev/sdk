@@ -8,5 +8,5 @@
  * picker agent from that URL. All the overlay code lives in @precedence/viewer,
  * not here.
  */
-export { installPrecedence, installFromPlan, PM_ID_KEY } from "./runtime";
+export { installPrecedence, installFromPlan, precedencePicker, PM_ID_KEY } from "./runtime";
 export type { InstallOpts, RuntimePlan, PlanEvent, PlanAnchor } from "./runtime";

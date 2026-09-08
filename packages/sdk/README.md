@@ -45,11 +45,15 @@ plan yourself.
 ## The picker hook
 
 When the page is opened with `?precedence=pick&at=<url>` (by `@precedence/wizard`),
-`installPrecedence` loads the picker agent from that URL — a ~15-line hook, no
-overlay code here, `at` must be localhost. That's how "click real elements in
-your running app" works; the agent + UI live in
-[`@precedence/viewer`](../viewer). It never runs in a normal page (the param is
-never there); `installPrecedence({ picker: false })` hard-disables it.
+the picker agent is loaded from that URL — a ~15-line hook, no overlay code here,
+`at` must be localhost. That's how "click real elements in your running app"
+works; the agent + UI live in [`@precedence/viewer`](../viewer). It never runs in
+a normal page (the param is never there).
+
+`installPrecedence` runs it; `installPrecedence({ picker: false })` opts out. If
+you want the picker but not runtime mode, call **`precedencePicker()`** on its
+own — e.g. from a Next `instrumentation-client.ts` (what `@precedence/wizard`
+writes for you).
 
 ## Notes
 

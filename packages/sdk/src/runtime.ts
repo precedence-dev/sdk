@@ -118,15 +118,16 @@ export function installFromPlan(plan: RuntimePlan, track: InstallOpts["track"]):
 }
 
 export async function installPrecedence(opts: InstallOpts): Promise<void> {
-  if (opts.picker !== false && activatePicker()) return; // dev picker mode — skip the normal runtime wiring
+  if (opts.picker !== false && precedencePicker()) return; // dev picker mode — skip the normal runtime wiring
   const plan = opts.plan ?? (await fetch(opts.planUrl ?? "/precedence-plan.json").then((r) => r.json()));
   installFromPlan(plan, opts.track);
 }
 
 /** `?precedence=pick&at=<url>` (from `@precedence/wizard`) loads the picker agent
  *  into this page — the only overlay code is served from `at`, which must be
- *  localhost. Returns true when it activated. */
-function activatePicker(): boolean {
+ *  localhost. Returns true when it activated. Call this on its own (e.g. from a
+ *  Next `instrumentation-client.ts`) if you want the picker but not runtime mode. */
+export function precedencePicker(): boolean {
   if (typeof window === "undefined" || typeof document === "undefined") return false;
   const q = new URLSearchParams(window.location.search);
   if (q.get("precedence") !== "pick") return false;

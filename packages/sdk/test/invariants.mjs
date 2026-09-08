@@ -7,7 +7,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { installFromPlan, installPrecedence } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
+const { installFromPlan, installPrecedence, precedencePicker } = await import(pathToFileURL(path.resolve(here, "../dist/index.js")).href);
 
 let fails = 0;
 const check = (name, ok, detail) => {
@@ -120,6 +120,11 @@ const check = (name, ok, detail) => {
     withSearch("?utm=x");
     await installPrecedence({ track: () => {}, plan: { events: [] } });
     check("picker hook: no ?precedence=pick -> normal install, no agent", appended.length === 0);
+
+    appended.length = 0;
+    withSearch("?precedence=pick&at=http://localhost:4000");
+    check("precedencePicker(): standalone export activates the same way (for instrumentation-client.ts)",
+      precedencePicker() === true && appended[0].src === "http://localhost:4000/agent.js");
   } finally {
     delete global.document; delete global.window; delete global.fetch;
   }
