@@ -2,7 +2,7 @@
   "name": "@precedence/viewer",
   "version": "0.1.0",
   "description": "A browser for Precedence's catalog.pcs - review every tracking attach point, pick nodes, export an event plan. Zero dependencies; the CLI bakes a shareable static copy.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "bin": {
     "precedence-view": "bin/precedence-view.js"
   },
@@ -13,7 +13,8 @@
     "bin/",
     "browser/",
     "index.html",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",

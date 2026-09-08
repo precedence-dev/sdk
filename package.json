@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Client-side Precedence packages: the runtime (@precedence/sdk) and the outcome picker (@precedence/viewer).",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "workspaces": [
     "packages/*"
   ],

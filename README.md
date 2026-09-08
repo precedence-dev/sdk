@@ -1,7 +1,7 @@
 # precedence — client-side packages
 
 The two Precedence packages that run in (or target) the browser. Both are
-public, MIT, and depend on nothing proprietary — they only need the *shape* of
+public, Apache-2.0 — they only need the *shape* of
 `catalog.pcs` / the plan, not the analyzer.
 
 | package | what it is |
