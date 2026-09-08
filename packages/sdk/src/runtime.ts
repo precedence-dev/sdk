@@ -3,7 +3,7 @@
  * `emit: "runtime"` mode work.
  *
  * instrument's runtime mode injects `globalThis.__pm?.("<anchor id>", { ...in-
- * scope props })` at each branch and stamps `data-pm-el="<anchor id>"` on each
+ * scope props })` at each branch and stamps `data-precedence-id="<anchor id>"` on each
  * synthetic anchor (a link / bare button with no handler to splice into). It
  * bakes in no event name and no static props — everything else is left to this
  * module, so a rename / retarget / discriminator change / prop narrowing is a
@@ -14,7 +14,7 @@
  *   2. installs one capture-phase document click listener for the synthetic
  *      anchors instrument only stamped — their click has to be caught here.
  *
- * `pm_id`, `data-pm-el` and `__pm` are the wire-protocol identifiers shared with
+ * `pm_id`, `data-precedence-id` and `__pm` are the wire-protocol identifiers shared with
  * @precedence/instrument's injected calls.
  */
 
@@ -106,8 +106,8 @@ export function installFromPlan(plan: RuntimePlan, track: InstallOpts["track"]):
   if (typeof document !== "undefined") {
     const onClick = (e: Event): void => {
       const target = e.target as Element | null;
-      const el = target && typeof target.closest === "function" ? target.closest("[data-pm-el]") : null;
-      const id = el?.getAttribute("data-pm-el");
+      const el = target && typeof target.closest === "function" ? target.closest("[data-precedence-id]") : null;
+      const id = el?.getAttribute("data-precedence-id");
       if (!el || !id) return;
       const hit = byId.get(id);
       if (hit) emit(id, domProps(el, hit.event.properties));

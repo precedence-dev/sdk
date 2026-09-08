@@ -15,7 +15,7 @@ installPrecedence({ track });
 ## What it does
 
 `@precedence/instrument --emit runtime` injects `globalThis.__pm?.("<anchor id>",
-{ ...in-scope props })` at each branch and stamps `data-pm-el="<anchor id>"` on
+{ ...in-scope props })` at each branch and stamps `data-precedence-id="<anchor id>"` on
 each synthetic anchor (a link / bare `<button>` with no handler to splice a call
 into). It bakes in **no** event name and **no** static props — everything else is
 this package's job. `installPrecedence`:
@@ -29,7 +29,7 @@ this package's job. `installPrecedence`:
   call passes a superset), then the anchor's `outcome` / `placement`
   discriminator from the plan;
 - installs one capture-phase `click` listener for the synthetic anchors, which
-  carry only a `data-pm-el` stamp and no injected call.
+  carry only a `data-precedence-id` stamp and no injected call.
 
 ## Options
 
@@ -60,7 +60,7 @@ writes for you).
 - **Not React-specific.** A dev-time picker used to ship here as a React
   component (`PrecedenceDevtools`); it's gone. The hook above is the
   framework-neutral replacement.
-- `pm_id`, `data-pm-el`, `__pm` are the wire-protocol identifiers shared with
+- `pm_id`, `data-precedence-id`, `__pm` are the wire-protocol identifiers shared with
   `@precedence/instrument`'s injected calls.
 - `installPrecedence` fetches once at startup — until it resolves, `__pm` is
   unset and events are dark. Pass `plan` yourself to make it synchronous.

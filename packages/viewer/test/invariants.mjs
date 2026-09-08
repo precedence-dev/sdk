@@ -104,6 +104,7 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
 
   const agentCat = { elements: [{
     file: "src/Checkout.tsx", line: 12, component: "Checkout", tag: "form", label: "",
+    ref: "src/Checkout.tsx#Checkout::form",
     actions: [{
       name: "onSubmit", attachId: "src/Checkout.tsx#Checkout::form|onSubmit", suggestedName: "checkout_submit",
       fingerprint: { handler: "onSubmit", conditionKey: "" }, candidateProps: [], branches: [
@@ -114,18 +115,18 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
           fingerprint: { handler: "onSubmit", conditionKey: "!_" }, suggestedName: "checkout_blocked", candidateProps: [{ name: "user" }], children: [] },
       ],
     }],
-    // a second element with a nearby line — the resolver should pick the closest
-  }, { file: "src/Other.tsx", line: 40, component: "Other", tag: "button", actions: [] }] };
+  }, { file: "src/Other.tsx", line: 40, component: "Other", tag: "button", ref: "src/Other.tsx#Other::button", actions: [] }] };
 
-  const stamp = (v) => ({ closest: (s) => (s === "[data-precedence-dev-id]" ? { getAttribute: () => v } : null) });
+  // the stamp value IS catalog.elements[].ref (@precedence/cli/stamp-loader)
+  const stamp = (v) => ({ closest: (s) => (s === "[data-precedence-id]" && v ? { getAttribute: () => v } : null) });
 
-  check("agent entryFor: a data-precedence-dev-id stamp resolves to its catalog element by file + line",
-    entryFor(stamp("app/src/Checkout.tsx:13"), agentCat)?.component === "Checkout");
+  check("agent entryFor: a data-precedence-id stamp resolves to its catalog element by exact ref",
+    entryFor(stamp("src/Checkout.tsx#Checkout::form"), agentCat)?.component === "Checkout");
   check("agent entryFor: no stamp -> null", entryFor(stamp(null), agentCat) === null);
-  check("agent entryFor: a line far from any element -> null",
-    entryFor(stamp("src/Checkout.tsx:400"), agentCat) === null);
+  check("agent entryFor: a ref not in the catalog -> null",
+    entryFor(stamp("src/Gone.tsx#Gone::form"), agentCat) === null);
 
-  const rows = rowsFor(entryFor(stamp("src/Checkout.tsx:12"), agentCat));
+  const rows = rowsFor(entryFor(stamp("src/Checkout.tsx#Checkout::form"), agentCat));
   check("agent rowsFor: the action + each terminal branch, with fingerprints and props",
     rows.length === 3
       && rows[0].id === "src/Checkout.tsx#Checkout::form|onSubmit"

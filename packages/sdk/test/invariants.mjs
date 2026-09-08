@@ -79,13 +79,13 @@ const check = (name, ok, detail) => {
 
     check("click listener: one capture-phase click listener is registered", listeners.length === 1 && listeners[0].type === "click" && listeners[0].capture === true);
 
-    const anchorEl = { getAttribute: (n) => ({ "data-pm-el": "src/Nav.tsx#Nav::a[Pricing]", href: "/pricing", "aria-label": "Pricing" }[n] ?? null) };
-    listeners[0].fn({ target: { closest: (sel) => (sel === "[data-pm-el]" ? anchorEl : null) } });
+    const anchorEl = { getAttribute: (n) => ({ "data-precedence-id": "src/Nav.tsx#Nav::a[Pricing]", href: "/pricing", "aria-label": "Pricing" }[n] ?? null) };
+    listeners[0].fn({ target: { closest: (sel) => (sel === "[data-precedence-id]" ? anchorEl : null) } });
     check("click listener: a click on a stamped synthetic anchor fires its event with DOM-derived props",
       calls.length === 1 && calls[0][0] === "nav_pricing" && calls[0][1].href === "/pricing" && calls[0][1].label === "Pricing" && calls[0][1].pm_id === "src/Nav.tsx#Nav::a[Pricing]");
 
     listeners[0].fn({ target: { closest: () => null } });
-    check("click listener: a click with no [data-pm-el] ancestor is ignored", calls.length === 1);
+    check("click listener: a click with no [data-precedence-id] ancestor is ignored", calls.length === 1);
 
     installFromPlan(plan, () => {});
     check("click listener: re-installing detaches the previous listener instead of stacking", listeners.length === 1);

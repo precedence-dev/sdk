@@ -18,7 +18,7 @@ for "one event, N branches"), and exports the plan
 `servePlan` also serves `agent.js` — a vanilla overlay `@precedence/sdk` injects
 into a running dev build (opened with `?precedence=pick&at=<this server>`). You
 hover/click real elements; it resolves each click to a catalog entry via the
-`data-precedence-dev-id` stamp ([`@precedence/cli/stamp-loader`](https://github.com/precedence-dev/core/tree/main/packages/cli)),
+`data-precedence-id` stamp ([`@precedence/cli/stamp-loader`](https://github.com/precedence-dev/core/tree/main/packages/cli)),
 shows that element's outcome branches, and POSTs the picked ones back as a plan.
 `@precedence/wizard` drives this. The overlay runs in a shadow root — no style
 collisions.

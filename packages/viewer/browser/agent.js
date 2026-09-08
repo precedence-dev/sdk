@@ -3,7 +3,7 @@
  * @precedence/sdk when the page is opened with `?precedence=pick&at=<url>`.
  *
  * Click an interactive element -> resolve it to a catalog entry via the
- * `data-precedence-dev-id` stamp (@precedence/cli/stamp-loader) -> show its
+ * `data-precedence-id` stamp (@precedence/cli/stamp-loader) -> show its
  * outcome branches -> name the ones to track -> POST the plan to the wizard.
  *
  * Vanilla, self-contained, runs in a shadow root so nothing here touches the
@@ -15,17 +15,13 @@
 
   /* ---- pure: resolve a stamped node to a catalog entry ---------------------- */
   function entryFor(node, catalog) {
-    var stamped = node && node.closest ? node.closest("[data-precedence-dev-id]") : null;
-    var v = stamped && stamped.getAttribute("data-precedence-dev-id");
-    var m = v && /^(.*):(\d+)$/.exec(v);
-    if (!m) return null;
-    var file = m[1], line = +m[2], hit = null;
-    (catalog.elements || []).forEach(function (e) {
-      if (file.slice(-e.file.length) !== e.file) return;
-      if (Math.abs((e.line || 0) - line) > 2) return;
-      if (!hit || Math.abs(e.line - line) < Math.abs(hit.line - line)) hit = e;
-    });
-    return hit;
+    var stamped = node && node.closest ? node.closest("[data-precedence-id]") : null;
+    var ref = stamped && stamped.getAttribute("data-precedence-id");
+    if (!ref) return null;
+    // the stamp IS catalog.elements[].ref (@precedence/cli/stamp-loader) — exact match
+    var els = catalog.elements || [];
+    for (var i = 0; i < els.length; i++) if (els[i].ref === ref) return els[i];
+    return null;
   }
 
   /* ---- pure: an entry's trackable rows (the action + each terminal branch) -- */
