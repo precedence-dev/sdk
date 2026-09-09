@@ -1,6 +1,6 @@
 /**
- * @precedence/sdk invariants: the runtime event-id lookup — `installPrecedence`
- * / `installFromPlan`, what makes @precedence/instrument's `emit: "runtime"`
+ * @precedence-dev/sdk invariants: the runtime event-id lookup — `installPrecedence`
+ * / `installFromPlan`, what makes @precedence-dev/instrument's `emit: "runtime"`
  * mode work. Framework-agnostic; the only DOM it touches is one click listener.
  */
 import { pathToFileURL, fileURLToPath } from "node:url";

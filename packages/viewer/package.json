@@ -1,8 +1,18 @@
 {
-  "name": "@precedence/viewer",
+  "name": "@precedence-dev/viewer",
   "version": "0.1.0",
   "description": "A browser for Precedence's catalog.pcs - review every tracking attach point, pick nodes, export an event plan. Zero dependencies; the CLI bakes a shareable static copy.",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
+  "author": "Precedence",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/precedence-dev/sdk.git",
+    "directory": "packages/viewer"
+  },
+  "homepage": "https://github.com/precedence-dev/sdk/tree/main/packages/viewer",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "precedence-view": "bin/precedence-view.js"
   },

@@ -1,8 +1,18 @@
 {
-  "name": "@precedence/sdk",
+  "name": "@precedence-dev/sdk",
   "version": "0.1.0",
-  "description": "The runtime half of Precedence: installPrecedence, for @precedence/instrument's emit: \"runtime\" mode. Framework-agnostic, zero dependencies.",
-  "license": "Apache-2.0",
+  "description": "The runtime half of Precedence: installPrecedence, for @precedence-dev/instrument's emit: \"runtime\" mode. Framework-agnostic, zero dependencies.",
+  "license": "FSL-1.1-ALv2",
+  "author": "Precedence",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/precedence-dev/sdk.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/precedence-dev/sdk/tree/main/packages/sdk",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

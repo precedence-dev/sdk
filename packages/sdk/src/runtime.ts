@@ -1,5 +1,5 @@
 /**
- * The runtime half of @precedence/sdk: makes @precedence/instrument's
+ * The runtime half of @precedence-dev/sdk: makes @precedence-dev/instrument's
  * `emit: "runtime"` mode work.
  *
  * instrument's runtime mode injects `globalThis.__pm?.("<anchor id>", { ...in-
@@ -15,7 +15,7 @@
  *      anchors instrument only stamped — their click has to be caught here.
  *
  * `pm_id`, `data-precedence-id` and `__pm` are the wire-protocol identifiers shared with
- * @precedence/instrument's injected calls.
+ * @precedence-dev/instrument's injected calls.
  */
 
 /** every emitted event carries the anchor id under this key, so a value seen in
@@ -123,7 +123,7 @@ export async function installPrecedence(opts: InstallOpts): Promise<void> {
   installFromPlan(plan, opts.track);
 }
 
-/** `?precedence=pick&at=<url>` (from `@precedence/wizard`) loads the picker agent
+/** `?precedence=pick&at=<url>` (from `@precedence-dev/wizard`) loads the picker agent
  *  into this page — the only overlay code is served from `at`, which must be
  *  localhost. Returns true when it activated. Call this on its own (e.g. from a
  *  Next `instrumentation-client.ts`) if you want the picker but not runtime mode. */

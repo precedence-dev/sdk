@@ -1,5 +1,5 @@
 /**
- * @precedence/viewer programmatic entry.
+ * @precedence-dev/viewer programmatic entry.
  *
  * The picker UI itself is `index.html` (self-contained). This module is for
  * driving it from Node: bake a catalog into the page (`renderHtml`), or serve

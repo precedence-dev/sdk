@@ -1,12 +1,12 @@
-# @precedence/sdk
+# @precedence-dev/sdk
 
-The runtime half of Precedence — what makes `@precedence/instrument`'s
+The runtime half of Precedence — what makes `@precedence-dev/instrument`'s
 `emit: "runtime"` mode work. **Framework-agnostic, zero dependencies, ~1 KB.**
 Call `installPrecedence` once at your app root:
 
 ```ts
 // wherever runs once at startup — root layout, _app, main.ts, a side-effect import
-import { installPrecedence } from "@precedence/sdk";
+import { installPrecedence } from "@precedence-dev/sdk";
 import { track } from "@/lib/analytics"; // your actual analytics client
 
 installPrecedence({ track });
@@ -14,7 +14,7 @@ installPrecedence({ track });
 
 ## What it does
 
-`@precedence/instrument --emit runtime` injects `globalThis.__pm?.("<anchor id>",
+`@precedence-dev/instrument --emit runtime` injects `globalThis.__pm?.("<anchor id>",
 { ...in-scope props })` at each branch and stamps `data-precedence-id="<anchor id>"` on
 each synthetic anchor (a link / bare `<button>` with no handler to splice a call
 into). It bakes in **no** event name and **no** static props — everything else is
@@ -44,15 +44,15 @@ plan yourself.
 
 ## The picker hook
 
-When the page is opened with `?precedence=pick&at=<url>` (by `@precedence/wizard`),
+When the page is opened with `?precedence=pick&at=<url>` (by `@precedence-dev/wizard`),
 the picker agent is loaded from that URL — a ~15-line hook, no overlay code here,
 `at` must be localhost. That's how "click real elements in your running app"
-works; the agent + UI live in [`@precedence/viewer`](../viewer). It never runs in
+works; the agent + UI live in [`@precedence-dev/viewer`](../viewer). It never runs in
 a normal page (the param is never there).
 
 `installPrecedence` runs it; `installPrecedence({ picker: false })` opts out. If
 you want the picker but not runtime mode, call **`precedencePicker()`** on its
-own — e.g. from a Next `instrumentation-client.ts` (what `@precedence/wizard`
+own — e.g. from a Next `instrumentation-client.ts` (what `@precedence-dev/wizard`
 writes for you).
 
 ## Notes
@@ -61,7 +61,7 @@ writes for you).
   component (`PrecedenceDevtools`); it's gone. The hook above is the
   framework-neutral replacement.
 - `pm_id`, `data-precedence-id`, `__pm` are the wire-protocol identifiers shared with
-  `@precedence/instrument`'s injected calls.
+  `@precedence-dev/instrument`'s injected calls.
 - `installPrecedence` fetches once at startup — until it resolves, `__pm` is
   unset and events are dark. Pass `plan` yourself to make it synchronous.
 

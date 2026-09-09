@@ -1,13 +1,13 @@
 /**
  * Serve the picker locally and hand back the plan the user exports.
  *
- * `precedence-view --serve` and `@precedence/wizard` both use this: start an
+ * `precedence-view --serve` and `@precedence-dev/wizard` both use this: start an
  * HTTP server on 127.0.0.1, and resolve once something POSTs a plan to `/plan`.
  * One-shot — the server closes as soon as it has a plan.
  *
  * Routes:
  *   GET  /            the static picker (catalog baked in, POSTs to /plan)
- *   GET  /agent.js    the in-page picker agent (loaded by @precedence/sdk)
+ *   GET  /agent.js    the in-page picker agent (loaded by @precedence-dev/sdk)
  *   GET  /catalog     the catalog JSON (the agent fetches this)
  *   POST /plan        the export — resolves servePlan()
  *

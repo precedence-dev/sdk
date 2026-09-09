@@ -1,5 +1,5 @@
 /**
- * @precedence/viewer invariants: locating/validating a catalog.pcs and baking it
+ * @precedence-dev/viewer invariants: locating/validating a catalog.pcs and baking it
  * into the self-contained index.html. The tree/editor/export UI lives only in
  * index.html and is exercised by hand.
  */
@@ -117,7 +117,7 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
     }],
   }, { file: "src/Other.tsx", line: 40, component: "Other", tag: "button", ref: "src/Other.tsx#Other::button", actions: [] }] };
 
-  // the stamp value IS catalog.elements[].ref (@precedence/cli/stamp-loader)
+  // the stamp value IS catalog.elements[].ref (@precedence-dev/cli/stamp-loader)
   const stamp = (v) => ({ closest: (s) => (s === "[data-precedence-id]" && v ? { getAttribute: () => v } : null) });
 
   check("agent entryFor: a data-precedence-id stamp resolves to its catalog element by exact ref",
@@ -151,7 +151,7 @@ check("index.html: the picker script is present and syntactically valid",
   (() => { try { new Function(appScript || "throw 0"); return true; } catch { return false; } })());
 
 const exportFn = (appScript || "").split("function eventExport(")[1]?.split("\n  }")[0] || "";
-check("index.html: eventExport still emits the keys @precedence/instrument reads",
+check("index.html: eventExport still emits the keys @precedence-dev/instrument reads",
   /name:\s*e\.name/.test(exportFn)
     && /description:\s*e\.description/.test(exportFn)
     && /properties:/.test(exportFn)

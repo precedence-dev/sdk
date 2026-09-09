@@ -1,9 +1,9 @@
 /**
  * The Precedence picker agent. Injected into a running dev build by
- * @precedence/sdk when the page is opened with `?precedence=pick&at=<url>`.
+ * @precedence-dev/sdk when the page is opened with `?precedence=pick&at=<url>`.
  *
  * Click an interactive element -> resolve it to a catalog entry via the
- * `data-precedence-id` stamp (@precedence/cli/stamp-loader) -> show its
+ * `data-precedence-id` stamp (@precedence-dev/cli/stamp-loader) -> show its
  * outcome branches -> name the ones to track -> POST the plan to the wizard.
  *
  * Vanilla, self-contained, runs in a shadow root so nothing here touches the
@@ -18,7 +18,7 @@
     var stamped = node && node.closest ? node.closest("[data-precedence-id]") : null;
     var ref = stamped && stamped.getAttribute("data-precedence-id");
     if (!ref) return null;
-    // the stamp IS catalog.elements[].ref (@precedence/cli/stamp-loader) — exact match
+    // the stamp IS catalog.elements[].ref (@precedence-dev/cli/stamp-loader) — exact match
     var els = catalog.elements || [];
     for (var i = 0; i < els.length; i++) if (els[i].ref === ref) return els[i];
     return null;
@@ -40,7 +40,7 @@
   }
   function nm(p) { return p.name; }
 
-  /* ---- pure: picked rows -> the plan events @precedence/instrument consumes -- */
+  /* ---- pure: picked rows -> the plan events @precedence-dev/instrument consumes -- */
   function toEvents(picked) {
     return Object.keys(picked).map(function (id) {
       var p = picked[id];

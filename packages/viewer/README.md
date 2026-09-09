@@ -1,7 +1,7 @@
-# @precedence/viewer
+# @precedence-dev/viewer
 
 A browser for Precedence's `catalog.pcs` (produced by
-[`@precedence/cli`](https://github.com/precedence-dev/core/tree/main/packages/cli)):
+[`@precedence-dev/cli`](https://github.com/precedence-dev/core/tree/main/packages/cli)):
 review the tracking attach points a repo exposes without running the app, and
 pick the ones to track.
 
@@ -10,17 +10,17 @@ a `.json` file works too), or open it with `?src=<url>`. It shows every element 
 action / outcome-branch tree, lets you pick nodes to define events (properties to
 send, group binding, per-anchor status, `outcome` / `placement` discriminators
 for "one event, N branches"), and exports the plan
-[`@precedence/instrument`](https://github.com/precedence-dev/instrument) consumes:
+[`@precedence-dev/instrument`](https://github.com/precedence-dev/instrument) consumes:
 `{ events: [{ name, properties, anchors: [{ id, fingerprint, staticProps? }] }] }`.
 
 ## Live picker (`browser/agent.js`)
 
-`servePlan` also serves `agent.js` — a vanilla overlay `@precedence/sdk` injects
+`servePlan` also serves `agent.js` — a vanilla overlay `@precedence-dev/sdk` injects
 into a running dev build (opened with `?precedence=pick&at=<this server>`). You
 hover/click real elements; it resolves each click to a catalog entry via the
-`data-precedence-id` stamp ([`@precedence/cli/stamp-loader`](https://github.com/precedence-dev/core/tree/main/packages/cli)),
+`data-precedence-id` stamp ([`@precedence-dev/cli/stamp-loader`](https://github.com/precedence-dev/core/tree/main/packages/cli)),
 shows that element's outcome branches, and POSTs the picked ones back as a plan.
-`@precedence/wizard` drives this. The overlay runs in a shadow root — no style
+`@precedence-dev/wizard` drives this. The overlay runs in a shadow root — no style
 collisions.
 
 ## Use
@@ -29,7 +29,7 @@ collisions.
 
 **Served (`--serve`):** run a local server, open the picker, and write the plan
 the moment you click "send to wizard" — no file to move. This is what
-`@precedence/wizard` uses.
+`@precedence-dev/wizard` uses.
 
 ```
 precedence-view catalog.pcs --serve                 # writes ./.precedence/plan.json
