@@ -26,19 +26,58 @@
     return null;
   }
 
-  /* ---- pure: an entry's trackable rows (the action + each terminal branch) -- */
-  function rowsFor(entry) {
+  /* ---- pure: an entry's trackable rows (the action + each terminal outcome) --
+   * A control whose handler just forwards to a prop it was handed
+   * (`onClick={handleSave}` where `handleSave` calls `onSave(...)`) has its real
+   * outcomes one level out. `action.forwardsTo` names them; we pull those in and
+   * show them here as plain outcomes — the person picking never has to know the
+   * tree lives on another component. `catalog` is needed to resolve them. */
+  function rowsFor(entry, catalog) {
     function flat(bs, out) { (bs || []).forEach(function (b) { out.push(b); flat(b.children, out); }); return out; }
+    function terminals(a) { return flat(a && a.branches, []).filter(function (b) { return b.terminal; }); }
     var rows = [];
     (entry.actions || []).forEach(function (a) {
-      rows.push({ id: a.attachId, fingerprint: a.fingerprint, label: a.name + " (any outcome)", firesWhen: a.firesWhen,
-        suggestedName: a.suggestedName, inject: "statement", props: (a.candidateProps || []).map(nm) });
-      flat(a.branches, []).filter(function (b) { return b.terminal; }).forEach(function (b) {
-        rows.push({ id: b.id, fingerprint: b.fingerprint || a.fingerprint, label: b.label, firesWhen: b.firesWhen,
-          suggestedName: b.suggestedName, inject: b.inject || "statement", props: (b.candidateProps || []).map(nm) });
-      });
+      var fwd = a.forwardsTo && catalog ? forwarded(a, catalog, terminals) : null;
+      rows.push({ id: a.attachId, label: a.name + " (any outcome)", firesWhen: a.firesWhen,
+        suggestedName: a.suggestedName, inject: "statement", props: (a.candidateProps || []).map(nm),
+        fingerprint: a.fingerprint, anchors: fwd ? fwd.anyAnchors : null });
+      (fwd ? fwd.rows : terminals(a).map(function (b) {
+        return { id: b.id, fingerprint: b.fingerprint || a.fingerprint, label: b.label, firesWhen: b.firesWhen,
+          suggestedName: b.suggestedName, inject: b.inject || "statement", props: (b.candidateProps || []).map(nm), anchors: null };
+      })).forEach(function (r) { rows.push(r); });
     });
     return rows;
+  }
+
+  /* resolve `action.forwardsTo` → outcome rows. Injection anchors come from the
+   * render-site action(s) (real, injectable there); display text prefers the
+   * inner control's spliced copy — "Fires when Save is clicked, …" over the
+   * parent component's phrasing — matched by outcome path. */
+  function forwarded(action, catalog, terminals) {
+    var byId = {};
+    (catalog.elements || []).forEach(function (e) { (e.actions || []).forEach(function (a) { byId[a.attachId] = a; }); });
+    var targets = (action.forwardsTo.targets || []).map(function (id) { return byId[id]; }).filter(Boolean);
+    if (!targets.length) return null;
+
+    var display = {};
+    terminals(action).forEach(function (b) { display[b.path] = b; });
+
+    var byPath = {};
+    targets.forEach(function (t) {
+      terminals(t).forEach(function (b) { (byPath[b.path] = byPath[b.path] || []).push(b); });
+    });
+    var rows = Object.keys(byPath).map(function (p) {
+      var bs = byPath[p], d = display[p] || bs[0];
+      return { id: bs.map(function (b) { return b.id; }).join("+"),
+        fingerprint: bs[0].fingerprint, inject: "statement",
+        label: d.label, firesWhen: display[p] ? d.firesWhen : "",
+        suggestedName: d.suggestedName,
+        anchors: bs.map(function (b) { return { id: b.id, fingerprint: b.fingerprint, inject: b.inject || "statement" }; }),
+        props: (d.candidateProps || []).map(nm) };
+    });
+    return { rows: rows, anyAnchors: targets.map(function (t) {
+      return { id: t.attachId, fingerprint: t.fingerprint, inject: "statement" };
+    }) };
   }
   function nm(p) { return p.name; }
 
@@ -46,8 +85,10 @@
   function toEvents(picked) {
     return Object.keys(picked).map(function (id) {
       var p = picked[id];
-      var ev = { name: (p.name || "event").trim(), properties: p.props || [],
-        anchors: [{ id: id, fingerprint: p.fingerprint, inject: p.inject || "statement" }] };
+      var anchors = p.anchors && p.anchors.length
+        ? p.anchors
+        : [{ id: id, fingerprint: p.fingerprint, inject: p.inject || "statement" }];
+      var ev = { name: (p.name || "event").trim(), properties: p.props || [], anchors: anchors };
       if (p.description) ev.description = p.description.trim();
       return ev;
     });
@@ -214,7 +255,7 @@
     panel.innerHTML = "";
     panel.appendChild(el("el", "<" + entry.tag + ">" + (entry.label ? " " + entry.label : "")));
     panel.appendChild(el("loc", entry.component + "  ·  " + entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line));
-    rowsFor(entry).forEach(function (r) { panel.appendChild(row(r)); });
+    rowsFor(entry, catalog).forEach(function (r) { panel.appendChild(row(r)); });
     count();
   }
 
@@ -265,7 +306,7 @@
     function sync() {
       if (cb.checked) {
         picked[r.id] = { name: name.value.trim(), description: mean.value.trim(),
-          fingerprint: r.fingerprint, inject: r.inject, props: selectedProps() };
+          fingerprint: r.fingerprint, inject: r.inject, props: selectedProps(), anchors: r.anchors || null };
       } else {
         delete picked[r.id];
       }

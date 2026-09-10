@@ -283,12 +283,39 @@
   }
 
   function byRef(ref) { return catalog.elements.find(function (e) { return e.ref === ref; }) || null; }
+  function actionById(id) {
+    for (var i = 0; i < catalog.elements.length; i++) {
+      var as = catalog.elements[i].actions || [];
+      for (var j = 0; j < as.length; j++) if (as[j].attachId === id) return as[j];
+    }
+    return null;
+  }
+  /* a handler that just forwards to a prop (`onClick={handleSave}` → `onSave(…)`)
+   * has its real, injectable outcomes at the render site. Show those — keyed for
+   * injection there — but keep the inner control's wording ("…when Save is
+   * clicked") so no parent component is ever named to the person planning. */
+  function forwardedChildren(a) {
+    var tgt = (a.forwardsTo.targets || []).map(actionById).filter(Boolean);
+    if (tgt.length !== 1) return null;            // 0 or 2+ render sites: leave the spliced view
+    var display = {};
+    (function w(bs) { (bs || []).forEach(function (b) { display[b.path] = b; w(b.children); }); })(a.branches);
+    return (function relabel(bs) {
+      return (bs || []).map(function (b) {
+        var d = display[b.path] || b;
+        return Object.assign({}, b, {
+          label: d.label, firesWhen: d.firesWhen, suggestedName: d.suggestedName,
+          children: relabel(b.children),
+        });
+      });
+    })(tgt[0].branches);
+  }
   function actionNode(a) {
+    var children = a.forwardsTo ? forwardedChildren(a) : null;
     return {
       id: a.attachId, label: a.name, kind: "action", verb: a.verb,
       codeAtPoint: a.preamble || [], candidateProps: a.candidateProps,
       firesWhen: a.firesWhen, suggestedName: a.suggestedName, synthetic: a.synthetic,
-      autoProps: a.autoProps, children: a.branches || []
+      autoProps: a.autoProps, children: children || a.branches || []
     };
   }
   function candsOf(b) {
@@ -363,9 +390,12 @@
   }
 
   /* ---- outcome as a property: one event at the action, an anchor per branch ---- */
+  function effectiveBranches(action) {
+    return (action.forwardsTo && forwardedChildren(action)) || action.branches || [];
+  }
   function terminalBranches(action) {
     var out = [];
-    (function w(bs) { (bs || []).forEach(function (b) { if (b.terminal) out.push(b); w(b.children); }); })(action.branches);
+    (function w(bs) { (bs || []).forEach(function (b) { if (b.terminal) out.push(b); w(b.children); }); })(effectiveBranches(action));
     return out;
   }
   function trackAllOutcomes(entry, action) {

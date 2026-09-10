@@ -157,6 +157,58 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
       && events[0].anchors[0].id.endsWith("|ok") && events[0].anchors[0].fingerprint.conditionKey === "_.ok");
   check("agent toEvents: a per-row `description` is carried through, trimmed; absent when not set",
     events[0].description === "paid checkout" && !("description" in events[1]));
+
+  /* forwardsTo: a control that delegates to a prop shows the outcomes from the
+   * render site(s) — the picker never surfaces the parent component to the PM */
+  const fwdCat = { elements: [
+    { file: "src/Modal.tsx", line: 20, component: "CategoryModal", tag: "button", label: "Save",
+      ref: "src/Modal.tsx#CategoryModal::button[save]",
+      actions: [{
+        name: "onClick", attachId: "src/Modal.tsx#CategoryModal::button[save]|onClick",
+        firesWhen: "Fires when \"Save\" is clicked", suggestedName: "save_click",
+        fingerprint: { handler: "onClick", conditionKey: "" }, candidateProps: [],
+        forwardsTo: { prop: "onSave", targets: ["src/Page.tsx#Scores::CategoryModal|onSave"] },
+        branches: [
+          { id: "src/Modal.tsx#CategoryModal::button[save]|onClick|ok", path: "ok", label: "runs without error",
+            terminal: true, firesWhen: "Fires when \"Save\" is clicked, and no error is thrown",
+            suggestedName: "save_ok", fingerprint: { handler: "onClick", conditionKey: "" }, candidateProps: [], children: [] },
+          { id: "src/Modal.tsx#CategoryModal::button[save]|onClick|error", path: "error", label: "an error is thrown",
+            terminal: true, firesWhen: "Fires when \"Save\" is clicked, and an error is thrown",
+            suggestedName: "save_error", fingerprint: { handler: "onClick", conditionKey: "" }, candidateProps: [], children: [] },
+        ],
+      }],
+    },
+    { file: "src/Page.tsx", line: 40, component: "Scores", tag: "CategoryModal", label: "",
+      ref: "src/Page.tsx#Scores::CategoryModal",
+      actions: [{
+        name: "onSave", attachId: "src/Page.tsx#Scores::CategoryModal|onSave",
+        firesWhen: "Fires when <CategoryModal> save fires", suggestedName: "categorymodal_save",
+        fingerprint: { handler: "onSave", conditionKey: "" }, candidateProps: [],
+        branches: [
+          { id: "src/Page.tsx#Scores::CategoryModal|onSave|ok", path: "ok", label: "runs without error", terminal: true,
+            firesWhen: "Fires when <CategoryModal> save fires, and no error is thrown", suggestedName: "categorymodal_save_ok",
+            fingerprint: { handler: "onSave", conditionKey: "" }, candidateProps: [{ name: "categoryIds" }], children: [] },
+          { id: "src/Page.tsx#Scores::CategoryModal|onSave|error", path: "error", label: "an error is thrown", terminal: true,
+            firesWhen: "Fires when <CategoryModal> save fires, and an error is thrown", suggestedName: "categorymodal_save_error",
+            fingerprint: { handler: "onSave", conditionKey: "" }, candidateProps: [], children: [] },
+        ],
+      }],
+    },
+  ] };
+  const fwdRows = rowsFor(entryFor(stamp("src/Modal.tsx#CategoryModal::button[save]"), fwdCat), fwdCat);
+  check("agent rowsFor: a forwarding control's outcomes come from the render site, keyed for injection there",
+    fwdRows.length === 3
+      && fwdRows[0].anchors.length === 1 && fwdRows[0].anchors[0].id === "src/Page.tsx#Scores::CategoryModal|onSave"
+      && fwdRows.some((r) => r.label === "an error is thrown"
+        && r.anchors[0].id === "src/Page.tsx#Scores::CategoryModal|onSave|error"
+        && / "Save" is clicked/.test(r.firesWhen)),  // display text is the inner control's, not the component's
+    JSON.stringify(fwdRows.map((r) => [r.label, r.anchors && r.anchors.map((a) => a.id)])));
+  check("agent rowsFor: no component name leaks into a forwarded row's visible text",
+    fwdRows.every((r) => !/CategoryModal|<[A-Z]/.test(r.label + " " + (r.firesWhen || ""))));
+  const fwdEv = toEvents({ "src/Page.tsx#Scores::CategoryModal|onSave|error": {
+    name: "save_failed", fingerprint: {}, props: [], anchors: fwdRows.find((r) => r.label === "an error is thrown").anchors } });
+  check("agent toEvents: a forwarded pick plans the render-site anchor",
+    fwdEv[0].anchors.length === 1 && fwdEv[0].anchors[0].id === "src/Page.tsx#Scores::CategoryModal|onSave|error");
 }
 
 
