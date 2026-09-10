@@ -81,6 +81,10 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
   check("servePlan: GET /catalog serves the catalog JSON with CORS",
     cat2.ok && cat2.headers.get("access-control-allow-origin") === "*"
       && (await cat2.json()).elements[0].ref === "a.tsx#A::button");
+  const emptyPlan = await fetch(url + "plan");
+  check("servePlan: GET /plan with no existing plan → { events: [] } + CORS",
+    emptyPlan.ok && emptyPlan.headers.get("access-control-allow-origin") === "*"
+      && JSON.stringify(await emptyPlan.json()) === '{"events":[]}');
   const pre = await fetch(url + "plan", { method: "OPTIONS" });
   check("servePlan: OPTIONS preflight for the cross-origin POST -> 204 + CORS", pre.status === 204 && pre.headers.get("access-control-allow-origin") === "*");
 
@@ -94,6 +98,17 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
 
   const timedOut = await servePlan(cat, { open: false, timeoutMs: 60 }).then(() => null, (e) => e.message);
   check("servePlan: rejects on timeout with a clear message", /timed out/.test(timedOut || ""));
+
+  /* GET /plan echoes the existing plan the wizard seeds, so the agent can show
+   * what's tracked and merge instead of replace */
+  let u2;
+  const p2 = servePlan(cat, { open: false, plan: { events: [{ name: "kept", properties: ["x"], anchors: [{ id: "a.tsx#A::button" }] }] }, onListen: (u) => { u2 = u; } });
+  await new Promise((r) => setTimeout(r, 50));
+  const seeded = await (await fetch(u2 + "plan")).json();
+  check("servePlan: GET /plan returns the seeded existing plan",
+    seeded.events.length === 1 && seeded.events[0].name === "kept");
+  await fetch(u2 + "plan", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  await p2;
 }
 
 /* ---- agent.js: the in-page picker's pure logic (require-safe, no DOM) ---- */
@@ -134,11 +149,14 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
       && rows.some((r) => r.id.endsWith("|guard")));
 
   const events = toEvents({
-    "src/Checkout.tsx#Checkout::form|onSubmit|ok": { name: " checkout_ok ", fingerprint: { handler: "onSubmit", conditionKey: "_.ok" }, inject: "statement", props: ["result"] },
+    "src/Checkout.tsx#Checkout::form|onSubmit|ok": { name: " checkout_ok ", description: " paid checkout ", fingerprint: { handler: "onSubmit", conditionKey: "_.ok" }, inject: "statement", props: ["result"] },
+    "src/Checkout.tsx#Checkout::form|onSubmit|guard": { name: "checkout_guard", fingerprint: {}, inject: "statement", props: [] },
   });
   check("agent toEvents: picked rows -> the { name, properties, anchors:[{id,fingerprint,inject}] } instrument consumes",
-    events.length === 1 && events[0].name === "checkout_ok" && JSON.stringify(events[0].properties) === '["result"]'
+    events.length === 2 && events[0].name === "checkout_ok" && JSON.stringify(events[0].properties) === '["result"]'
       && events[0].anchors[0].id.endsWith("|ok") && events[0].anchors[0].fingerprint.conditionKey === "_.ok");
+  check("agent toEvents: a per-row `description` is carried through, trimmed; absent when not set",
+    events[0].description === "paid checkout" && !("description" in events[1]));
 }
 
 

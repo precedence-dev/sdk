@@ -3,8 +3,10 @@
  * @precedence-dev/sdk when the page is opened with `?precedence=pick&at=<url>`.
  *
  * Click an interactive element -> resolve it to a catalog entry via the
- * `data-precedence-id` stamp (@precedence-dev/cli/stamp-loader) -> show its
- * outcome branches -> name the ones to track -> POST the plan to the wizard.
+ * `data-precedence-id` stamp (@precedence-dev/cli/stamp-loader) -> for each
+ * outcome: name it, add a meaning, tick the properties to send -> POST the plan
+ * to the wizard. Fetches `GET /plan` first so whatever's already tracked shows
+ * up, stays checked, and rides along on send (merge, not replace).
  *
  * Vanilla, self-contained, runs in a shadow root so nothing here touches the
  * host app's styles. No build step. The pure helpers are exported for tests
@@ -44,8 +46,10 @@
   function toEvents(picked) {
     return Object.keys(picked).map(function (id) {
       var p = picked[id];
-      return { name: (p.name || "event").trim(), properties: p.props || [],
+      var ev = { name: (p.name || "event").trim(), properties: p.props || [],
         anchors: [{ id: id, fingerprint: p.fingerprint, inject: p.inject || "statement" }] };
+      if (p.description) ev.description = p.description.trim();
+      return ev;
     });
   }
 
@@ -61,12 +65,37 @@
    */
   var AT = new URL(document.currentScript.src).origin;
   var catalog = null;
-  var picked = {}; // rowId -> { name, fingerprint, inject, props }
+  var picked = {};       // rowId -> { name, description, fingerprint, inject, props }
+  var inPlan = {};        // rowId -> { name, properties, description } already in .precedence/plan.json
+  var carry = [];         // existing multi-anchor (discriminated) events, passed through untouched
   var root, panel, barEl, paused = false;
 
-  fetch(AT + "/catalog").then(function (r) { return r.json(); })
-    .then(function (c) { catalog = c; mount(); })
-    .catch(function () { alert("Precedence: couldn't load the catalog from " + AT); });
+  Promise.all([
+    fetch(AT + "/catalog").then(function (r) { return r.json(); }),
+    fetch(AT + "/plan").then(function (r) { return r.json(); }).catch(function () { return { events: [] }; }),
+  ]).then(function (res) {
+    catalog = res[0];
+    seedExisting(res[1]);
+    mount();
+    if (Object.keys(inPlan).length || carry.length) showPlan();
+  }).catch(function () { alert("Precedence: couldn't load the catalog from " + AT); });
+
+  /* pre-load whatever's already tracked so it shows up and round-trips on send.
+   * single-anchor events become editable rows; discriminated ones ride along in
+   * `carry` untouched (the agent's one-row-one-event model can't edit them). */
+  function seedExisting(plan) {
+    ((plan && plan.events) || []).forEach(function (ev) {
+      var an = ev.anchors || [];
+      if (an.length === 1) {
+        var a = an[0];
+        inPlan[a.id] = { name: ev.name, properties: ev.properties || [], description: ev.description || "" };
+        picked[a.id] = { name: ev.name, description: ev.description || "",
+          fingerprint: a.fingerprint, inject: a.inject || "statement", props: ev.properties || [] };
+      } else if (an.length > 1) {
+        carry.push(ev);
+      }
+    });
+  }
 
   function mount() {
     var host = document.createElement("div");
@@ -85,11 +114,21 @@
       ".panel{background:#fff;color:#1c1d1f;max-height:68vh;overflow:auto;padding:12px 14px;border-top:1px solid #e4e4e2}" +
       ".panel[hidden]{display:none}.el{font-family:ui-monospace,Menlo,monospace;font-weight:700;word-break:break-all}" +
       ".loc{color:#6b6f76;font-size:11px;margin-bottom:8px;word-break:break-all}" +
-      ".br{display:flex;gap:8px;align-items:baseline;padding:5px 0;flex-wrap:wrap}" +
-      ".br input[type=text]{flex:1;min-width:140px;font:12px ui-monospace,monospace;border:1px solid #e4e4e2;border-radius:5px;padding:3px 6px}" +
-      ".fx{flex-basis:100%;color:#6b6f76;font-size:12px}.hi{outline:2px solid #2f6fed!important;outline-offset:1px}</style>" +
+      ".br{padding:6px 0;border-top:1px solid #f0f0ee}.br:first-of-type{border-top:0}" +
+      ".brh{display:flex;gap:8px;align-items:baseline}" +
+      ".brh input[type=text]{flex:1;min-width:120px;font:12px ui-monospace,monospace;border:1px solid #e4e4e2;border-radius:5px;padding:3px 6px}" +
+      ".tag{font-size:10px;color:#2f9e44;white-space:nowrap}" +
+      ".fx{color:#6b6f76;font-size:12px;margin:2px 0 0 22px}" +
+      ".brb{margin:6px 0 2px 22px}.brb[hidden]{display:none}" +
+      ".brb input[type=text]{width:100%;font:12px system-ui;border:1px solid #e4e4e2;border-radius:5px;padding:3px 6px;margin-bottom:5px}" +
+      ".ph{color:#6b6f76;font-size:11px;text-transform:uppercase;letter-spacing:.04em}" +
+      ".pl{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:3px}" +
+      ".pl label{font:12px ui-monospace,monospace;display:flex;gap:4px;align-items:center}" +
+      ".pe{padding:3px 0;font:12px ui-monospace,monospace}.pe b{color:#2f9e44}" +
+      ".hi{outline:2px solid #2f6fed!important;outline-offset:1px}</style>" +
       "<div class=wrap>" +
       "<div class=bar><b>Precedence</b><span class=sp></span><span id=count></span>" +
+      "<button id=plan hidden>plan</button>" +
       "<button class=pause id=pause>pause</button>" +
       "<button class=go id=send>send to wizard</button>" +
       "<span class=msg id=msg>click an element to track it</span></div>" +
@@ -100,12 +139,18 @@
     document.documentElement.appendChild(host);
     root.getElementById("send").onclick = send;
     root.getElementById("pause").onclick = togglePause;
+    var planBtn = root.getElementById("plan");
+    planBtn.onclick = showPlan;
+    if (Object.keys(inPlan).length || carry.length) planBtn.hidden = false;
     document.addEventListener("mouseover", onHover, true);
     document.addEventListener("mouseout", function (e) { if (e.target.classList) e.target.classList.remove("hi"); }, true);
     document.addEventListener("click", onClick, true);
   }
   function bar(t) { if (barEl) barEl.textContent = t; }
-  function count() { root.getElementById("count").textContent = Object.keys(picked).length + " picked"; }
+  function count() {
+    var n = Object.keys(picked).length + carry.length;
+    root.getElementById("count").textContent = n + " tracked";
+  }
 
   function clearHi() {
     var hi = document.querySelectorAll(".hi");
@@ -132,43 +177,111 @@
     show(entry);
   }
 
+  function el(cls, text) {
+    var d = document.createElement("div");
+    if (cls) d.className = cls;
+    if (text != null) d.textContent = text;
+    return d;
+  }
+
+  /* the read-only view of what's already in .precedence/plan.json */
+  function showPlan() {
+    panel.hidden = false;
+    panel.innerHTML = "";
+    panel.appendChild(el("el", ".precedence/plan.json"));
+    var ids = Object.keys(inPlan);
+    if (!ids.length && !carry.length) { panel.appendChild(el("loc", "empty — nothing tracked yet")); return; }
+    ids.forEach(function (id) {
+      var e = inPlan[id];
+      panel.appendChild(planRow(e.name, e.properties));
+    });
+    carry.forEach(function (e) {
+      panel.appendChild(planRow(e.name, e.properties || [], (e.anchors || []).length + " outcomes"));
+    });
+    panel.appendChild(el("loc", "click an element to add to this or edit it"));
+  }
+  function planRow(name, props, note) {
+    var r = el("pe");
+    var b = document.createElement("b"); b.textContent = "✓ " + name;
+    r.appendChild(b);
+    if (props && props.length) r.appendChild(document.createTextNode("  (" + props.join(", ") + ")"));
+    if (note) r.appendChild(document.createTextNode("  · " + note));
+    return r;
+  }
+
   function show(entry) {
     panel.hidden = false;
     panel.innerHTML = "";
-    var h = document.createElement("div");
-    h.className = "el"; h.textContent = "<" + entry.tag + ">" + (entry.label ? " " + entry.label : "");
-    panel.appendChild(h);
-    var loc = document.createElement("div");
-    loc.className = "loc";
-    loc.textContent = entry.component + "  ·  " + entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line;
-    panel.appendChild(loc);
+    panel.appendChild(el("el", "<" + entry.tag + ">" + (entry.label ? " " + entry.label : "")));
+    panel.appendChild(el("loc", entry.component + "  ·  " + entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line));
     rowsFor(entry).forEach(function (r) { panel.appendChild(row(r)); });
     count();
   }
 
   function row(r) {
-    var wrap = document.createElement("div");
-    wrap.className = "br";
-    var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!picked[r.id];
+    var ex = inPlan[r.id];
+    var cur = picked[r.id];
+    var on = !!cur;
+    // properties selected right now: the plan's set if it's tracked, else the
+    // analyzer's full suggestion list for a fresh pick.
+    var sel = (cur && cur.props) || (ex && ex.properties) || r.props.slice();
+
+    var wrap = el("br");
+    var head = el("brh");
+    var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = on;
     var name = document.createElement("input"); name.type = "text";
-    name.value = (picked[r.id] && picked[r.id].name) || r.suggestedName || "event";
-    name.disabled = !cb.checked;
-    var fx = document.createElement("span"); fx.className = "fx";
-    fx.textContent = r.label + (r.firesWhen ? " — " + r.firesWhen.replace(/^Fires when /, "") : "");
+    name.value = (cur && cur.name) || (ex && ex.name) || r.suggestedName || "event";
+    name.disabled = !on;
+    head.appendChild(cb); head.appendChild(name);
+    if (ex) { var tag = el("span", "● in plan"); tag.className = "tag"; head.appendChild(tag); }
+
+    var fx = el("fx", r.label + (r.firesWhen ? " — " + r.firesWhen.replace(/^Fires when /, "") : ""));
+
+    var body = el("brb"); body.hidden = !on;
+    var mean = document.createElement("input"); mean.type = "text";
+    mean.placeholder = "what this event means (optional)";
+    mean.value = (cur && cur.description) || (ex && ex.description) || "";
+    body.appendChild(mean);
+    var pl = el("pl");
+    if (r.props.length) {
+      body.appendChild(el("span", "properties to send")).className = "ph";
+      r.props.forEach(function (pn) {
+        var lbl = document.createElement("label");
+        var pc = document.createElement("input"); pc.type = "checkbox"; pc.checked = sel.indexOf(pn) >= 0;
+        pc._pm = pn; pc.onchange = sync;
+        lbl.appendChild(pc); lbl.appendChild(document.createTextNode(pn));
+        pl.appendChild(lbl);
+      });
+      body.appendChild(pl);
+    } else {
+      body.appendChild(el("span", "no properties in scope here")).className = "ph";
+    }
+
+    function selectedProps() {
+      var out = [], ins = pl.querySelectorAll("input");
+      for (var i = 0; i < ins.length; i++) if (ins[i].checked) out.push(ins[i]._pm);
+      return out;
+    }
     function sync() {
-      if (cb.checked) picked[r.id] = { name: name.value.trim(), fingerprint: r.fingerprint, inject: r.inject, props: r.props };
-      else delete picked[r.id];
+      if (cb.checked) {
+        picked[r.id] = { name: name.value.trim(), description: mean.value.trim(),
+          fingerprint: r.fingerprint, inject: r.inject, props: selectedProps() };
+      } else {
+        delete picked[r.id];
+      }
       name.disabled = !cb.checked;
+      body.hidden = !cb.checked;
       count();
     }
-    cb.onchange = sync; name.oninput = sync;
-    wrap.appendChild(cb); wrap.appendChild(name); wrap.appendChild(fx);
+    cb.onchange = sync; name.oninput = sync; mean.oninput = sync;
+
+    wrap.appendChild(head); wrap.appendChild(fx); wrap.appendChild(body);
     return wrap;
   }
 
   function send() {
-    var events = toEvents(picked);
-    if (!events.length) { bar("nothing checked yet"); return; }
+    var events = toEvents(picked).concat(carry);
+    if (!events.length) { bar("nothing tracked yet"); return; }
     fetch(AT + "/plan", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ tool: "precedence-agent", generated: new Date().toISOString(), events: events }) })
       .then(function (r) { if (!r.ok) throw 0; })

@@ -9,10 +9,11 @@
  *   GET  /            the static picker (catalog baked in, POSTs to /plan)
  *   GET  /agent.js    the in-page picker agent (loaded by @precedence-dev/sdk)
  *   GET  /catalog     the catalog JSON (the agent fetches this)
+ *   GET  /plan        the existing plan, so the agent can show what's tracked
  *   POST /plan        the export — resolves servePlan()
  *
- * /agent.js and /catalog carry `Access-Control-Allow-Origin: *` because the
- * agent runs on the dev server's origin, not this one.
+ * /agent.js, /catalog and GET /plan carry `Access-Control-Allow-Origin: *`
+ * because the agent runs on the dev server's origin, not this one.
  */
 import * as http from "http";
 import * as fs from "fs";
@@ -31,6 +32,9 @@ export interface ServeOpts {
   timeoutMs?: number;
   /** called once the server is listening, with its URL */
   onListen?: (url: string) => void;
+  /** the existing plan, served at `GET /plan` so the picker shows what's already
+   *  tracked and merges rather than replaces */
+  plan?: unknown;
 }
 
 const MAX_BODY = 8 * 1024 * 1024;
@@ -64,6 +68,11 @@ export function servePlan(catalog: Catalog, opts: ServeOpts = {}): Promise<unkno
       if (req.method === "GET" && url === "/catalog") {
         res.writeHead(200, { ...CORS, "content-type": "application/json" });
         res.end(JSON.stringify(catalog));
+        return;
+      }
+      if (req.method === "GET" && url === "/plan") {
+        res.writeHead(200, { ...CORS, "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify(opts.plan ?? { events: [] }));
         return;
       }
       if (req.method === "POST" && url === "/plan") {

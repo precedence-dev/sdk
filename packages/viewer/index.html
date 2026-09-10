@@ -670,11 +670,13 @@
     });
   }
 
-  /* a mock of the analytics payload this event would send at runtime */
+  /* a mock of the analytics payload this event would send at runtime.
+   * the real call carries `psc_id` (a hash of the anchor id); the readable id
+   * is shown here for the preview. */
   function samplePayload(ev) {
     var props = {};
     var ids = ev.anchors.map(function (a) { return a.nodeId; });
-    props.pm_id = ids.length === 1 ? ids[0] : ids;
+    props.psc_id = ids.length === 1 ? ids[0] : ids;
     (ev.properties || []).forEach(function (name) {
       var c = (ev.candidates || []).filter(function (x) { return x.name === name; })[0];
       if (c && c.shape === "object" && c.fields && c.fields.length) {
