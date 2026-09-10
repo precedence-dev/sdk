@@ -115,48 +115,77 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
 {
   const { createRequire } = await import("node:module");
   const require = createRequire(import.meta.url);
-  const { entryFor, rowsFor, toEvents } = require(path.resolve(here, "../browser/agent.js"));
+  const { entryFor, nodesFor, toEvents } = require(path.resolve(here, "../browser/agent.js"));
 
+  const A = "src/ShiftPage.tsx#ShiftPage::button[update-shifts]";
   const agentCat = { elements: [{
-    file: "src/Checkout.tsx", line: 12, component: "Checkout", tag: "form", label: "",
-    ref: "src/Checkout.tsx#Checkout::form",
+    file: "src/ShiftPage.tsx", line: 304, component: "ShiftPage", tag: "button", label: "Update Shifts",
+    ref: "src/ShiftPage.tsx#ShiftPage::button[update-shifts]",
     actions: [{
-      name: "onSubmit", attachId: "src/Checkout.tsx#Checkout::form|onSubmit", suggestedName: "checkout_submit",
-      fingerprint: { handler: "onSubmit", conditionKey: "" }, candidateProps: [], branches: [
-        { id: "src/Checkout.tsx#Checkout::form|onSubmit|ok", label: "result.ok", terminal: true, inject: "statement",
-          fingerprint: { handler: "onSubmit", conditionKey: "_.ok" }, firesWhen: "Fires when the form is submitted, and result.ok",
-          suggestedName: "checkout_ok", candidateProps: [{ name: "result" }], children: [] },
-        { id: "src/Checkout.tsx#Checkout::form|onSubmit|guard", label: "!user", terminal: true, inject: "statement",
-          fingerprint: { handler: "onSubmit", conditionKey: "!_" }, suggestedName: "checkout_blocked", candidateProps: [{ name: "user" }], children: [] },
+      name: "onClick", attachId: A + "|onClick", suggestedName: "update_shifts_click", verb: "when clicked",
+      firesWhen: "Fires when \"Update Shifts\" is clicked", fingerprint: { handler: "onClick", conditionKey: "" },
+      candidateProps: [{ name: "adminId" }],
+      branches: [
+        // a diff-building loop: no call, no via, just add.push(id) — pure plumbing
+        { id: A + "|onClick|each", path: "each", kind: "loop", label: "for each selected shift", firesPerIteration: true,
+          fingerprint: {}, candidateProps: [], children: [
+            { id: A + "|onClick|each.if", path: "each.if", kind: "nested-if", label: "not in original", terminal: true,
+              codeAtPoint: ["add.push(…)"], fingerprint: {}, candidateProps: [], children: [] },
+            { id: A + "|onClick|each.else", path: "each.else", kind: "implicit-else", label: "otherwise, nothing happens",
+              terminal: true, synthetic: true, fingerprint: {}, candidateProps: [], children: [] },
+          ] },
+        // the real outcomes: the mutation's callbacks
+        { id: A + "|onClick|success", path: "success", kind: "outcome", via: "updateShiftMutation.mutate",
+          label: "the request succeeds", terminal: true, firesWhen: "Fires when \"Update Shifts\" is clicked, and the request succeeds",
+          suggestedName: "update_shifts_success", fingerprint: { handler: "onClick", conditionKey: "resolved" }, candidateProps: [], children: [] },
+        { id: A + "|onClick|error", path: "error", kind: "outcome", via: "updateShiftMutation.mutate",
+          label: "the request fails", terminal: true, firesWhen: "Fires when \"Update Shifts\" is clicked, and the request fails",
+          suggestedName: "update_shifts_error", fingerprint: { handler: "onClick", conditionKey: "rejected" }, candidateProps: [], children: [] },
       ],
     }],
-  }, { file: "src/Other.tsx", line: 40, component: "Other", tag: "button", ref: "src/Other.tsx#Other::button", actions: [] }] };
+  }, { file: "src/Other.tsx", line: 40, component: "Other", tag: "button", ref: "src/Other.tsx#Other::button", actions: [] }],
+    ambientProps: [
+      { name: "accessToken", source: "localStorage", accessor: 'localStorage.getItem("accessToken")', identity: true },
+      { name: "isAuthed", source: "context", via: { hook: "useAuth", context: "AuthCtx", path: "isAuthed" } },
+    ] };
 
-  // the stamp value IS catalog.elements[].ref (@precedence-dev/cli/stamp-loader)
   const stamp = (v) => ({ closest: (s) => (s === "[data-precedence-id]" && v ? { getAttribute: () => v } : null) });
 
   check("agent entryFor: a data-precedence-id stamp resolves to its catalog element by exact ref",
-    entryFor(stamp("src/Checkout.tsx#Checkout::form"), agentCat)?.component === "Checkout");
+    entryFor(stamp(A.split("|")[0]), agentCat)?.component === "ShiftPage");
   check("agent entryFor: no stamp -> null", entryFor(stamp(null), agentCat) === null);
   check("agent entryFor: a ref not in the catalog -> null",
     entryFor(stamp("src/Gone.tsx#Gone::form"), agentCat) === null);
 
-  const rows = rowsFor(entryFor(stamp("src/Checkout.tsx#Checkout::form"), agentCat));
-  check("agent rowsFor: the action + each terminal branch, with fingerprints and props",
-    rows.length === 3
-      && rows[0].id === "src/Checkout.tsx#Checkout::form|onSubmit"
-      && rows.some((r) => r.id.endsWith("|ok") && r.props.includes("result") && r.fingerprint.conditionKey === "_.ok")
-      && rows.some((r) => r.id.endsWith("|guard")));
+  const tree = nodesFor(entryFor(stamp(A.split("|")[0]), agentCat), agentCat);
+  const flat = (ns, out = []) => { for (const n of ns) { out.push(n); flat(n.children, out); } return out; };
+  const all = flat(tree);
+  check("agent nodesFor: one action node, trackable, with its branch subtree as children",
+    tree.length === 1 && tree[0].kind === "action" && tree[0].trackable === true
+      && tree[0].id === A + "|onClick");
+  check("agent nodesFor: the diff-building loop is pruned and counted in `hidden`",
+    tree[0].hidden === 1 && !all.some((n) => n.id.includes("|each")),
+    JSON.stringify(all.map((n) => n.id)));
+  check("agent nodesFor: the synthetic \"nothing happens\" branch never appears",
+    !all.some((n) => /nothing happens/i.test(n.label || "")));
+  check("agent nodesFor: the two real outcomes survive, trackable, labelled by phrase not slug",
+    all.filter((n) => /succeeds|fails/.test(n.label) && n.trackable).length === 2
+      && all.some((n) => n.id.endsWith("|success") && n.suggestedName === "update_shifts_success"));
 
   const events = toEvents({
-    "src/Checkout.tsx#Checkout::form|onSubmit|ok": { name: " checkout_ok ", description: " paid checkout ", fingerprint: { handler: "onSubmit", conditionKey: "_.ok" }, inject: "statement", props: ["result"] },
-    "src/Checkout.tsx#Checkout::form|onSubmit|guard": { name: "checkout_guard", fingerprint: {}, inject: "statement", props: [] },
+    [A + "|onClick|success"]: { name: " shifts_updated ", description: " a save succeeded ",
+      fingerprint: { handler: "onClick", conditionKey: "resolved" }, inject: "statement",
+      props: ["adminId", "accessToken"], accessors: { accessToken: 'localStorage.getItem("accessToken")' } },
+    [A + "|onClick|error"]: { name: "shifts_update_failed", fingerprint: {}, inject: "statement", props: [] },
   });
-  check("agent toEvents: picked rows -> the { name, properties, anchors:[{id,fingerprint,inject}] } instrument consumes",
-    events.length === 2 && events[0].name === "checkout_ok" && JSON.stringify(events[0].properties) === '["result"]'
-      && events[0].anchors[0].id.endsWith("|ok") && events[0].anchors[0].fingerprint.conditionKey === "_.ok");
+  check("agent toEvents: picked nodes -> { name, properties, anchors:[{id,fingerprint,inject}] } instrument consumes",
+    events.length === 2 && events[0].name === "shifts_updated"
+      && JSON.stringify(events[0].properties) === '["adminId","accessToken"]'
+      && events[0].anchors[0].id.endsWith("|success") && events[0].anchors[0].fingerprint.conditionKey === "resolved");
+  check("agent toEvents: a selected ambient prop rides along as `accessors`; absent when none",
+    events[0].accessors.accessToken === 'localStorage.getItem("accessToken")' && !("accessors" in events[1]));
   check("agent toEvents: a per-row `description` is carried through, trimmed; absent when not set",
-    events[0].description === "paid checkout" && !("description" in events[1]));
+    events[0].description === "a save succeeded" && !("description" in events[1]));
 
   /* forwardsTo: a control that delegates to a prop shows the outcomes from the
    * render site(s) — the picker never surfaces the parent component to the PM */
@@ -169,9 +198,6 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
         fingerprint: { handler: "onClick", conditionKey: "" }, candidateProps: [],
         forwardsTo: { prop: "onSave", targets: ["src/Page.tsx#Scores::CategoryModal|onSave"] },
         branches: [
-          { id: "src/Modal.tsx#CategoryModal::button[save]|onClick|ok", path: "ok", label: "runs without error",
-            terminal: true, firesWhen: "Fires when \"Save\" is clicked, and no error is thrown",
-            suggestedName: "save_ok", fingerprint: { handler: "onClick", conditionKey: "" }, candidateProps: [], children: [] },
           { id: "src/Modal.tsx#CategoryModal::button[save]|onClick|error", path: "error", label: "an error is thrown",
             terminal: true, firesWhen: "Fires when \"Save\" is clicked, and an error is thrown",
             suggestedName: "save_error", fingerprint: { handler: "onClick", conditionKey: "" }, candidateProps: [], children: [] },
@@ -185,30 +211,25 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
         firesWhen: "Fires when <CategoryModal> save fires", suggestedName: "categorymodal_save",
         fingerprint: { handler: "onSave", conditionKey: "" }, candidateProps: [],
         branches: [
-          { id: "src/Page.tsx#Scores::CategoryModal|onSave|ok", path: "ok", label: "runs without error", terminal: true,
-            firesWhen: "Fires when <CategoryModal> save fires, and no error is thrown", suggestedName: "categorymodal_save_ok",
-            fingerprint: { handler: "onSave", conditionKey: "" }, candidateProps: [{ name: "categoryIds" }], children: [] },
           { id: "src/Page.tsx#Scores::CategoryModal|onSave|error", path: "error", label: "an error is thrown", terminal: true,
-            firesWhen: "Fires when <CategoryModal> save fires, and an error is thrown", suggestedName: "categorymodal_save_error",
-            fingerprint: { handler: "onSave", conditionKey: "" }, candidateProps: [], children: [] },
+            kind: "catch", firesWhen: "Fires when <CategoryModal> save fires, and an error is thrown",
+            suggestedName: "categorymodal_save_error", fingerprint: { handler: "onSave", conditionKey: "" }, candidateProps: [], children: [] },
         ],
       }],
     },
   ] };
-  const fwdRows = rowsFor(entryFor(stamp("src/Modal.tsx#CategoryModal::button[save]"), fwdCat), fwdCat);
-  check("agent rowsFor: a forwarding control's outcomes come from the render site, keyed for injection there",
-    fwdRows.length === 3
-      && fwdRows[0].anchors.length === 1 && fwdRows[0].anchors[0].id === "src/Page.tsx#Scores::CategoryModal|onSave"
-      && fwdRows.some((r) => r.label === "an error is thrown"
-        && r.anchors[0].id === "src/Page.tsx#Scores::CategoryModal|onSave|error"
-        && / "Save" is clicked/.test(r.firesWhen)),  // display text is the inner control's, not the component's
-    JSON.stringify(fwdRows.map((r) => [r.label, r.anchors && r.anchors.map((a) => a.id)])));
-  check("agent rowsFor: no component name leaks into a forwarded row's visible text",
-    fwdRows.every((r) => !/CategoryModal|<[A-Z]/.test(r.label + " " + (r.firesWhen || ""))));
-  const fwdEv = toEvents({ "src/Page.tsx#Scores::CategoryModal|onSave|error": {
-    name: "save_failed", fingerprint: {}, props: [], anchors: fwdRows.find((r) => r.label === "an error is thrown").anchors } });
-  check("agent toEvents: a forwarded pick plans the render-site anchor",
-    fwdEv[0].anchors.length === 1 && fwdEv[0].anchors[0].id === "src/Page.tsx#Scores::CategoryModal|onSave|error");
+  const fwdTree = nodesFor(entryFor(stamp("src/Modal.tsx#CategoryModal::button[save]"), fwdCat), fwdCat);
+  const fwdAll = flat(fwdTree);
+  const errNode = fwdAll.find((n) => n.label === "an error is thrown");
+  check("agent nodesFor: a forwarding control's outcomes come from the render site, keyed for injection there",
+    !!errNode && errNode.trackable
+      && errNode.id === "src/Page.tsx#Scores::CategoryModal|onSave|error"
+      && / "Save" is clicked/.test(errNode.firesWhen),   // display text is the inner control's, not the component's
+    JSON.stringify(fwdAll.map((n) => [n.label, n.id])));
+  check("agent nodesFor: no component name leaks into a forwarded node's visible text",
+    fwdAll.every((n) => !/CategoryModal|<[A-Z]/.test((n.label || "") + " " + (n.firesWhen || ""))));
+  check("agent nodesFor: the forwarding action node points 'any outcome' at the render-site action",
+    fwdTree[0].anchors && fwdTree[0].anchors[0].id === "src/Page.tsx#Scores::CategoryModal|onSave");
 }
 
 
