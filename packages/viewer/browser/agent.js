@@ -4,10 +4,11 @@
  *
  * Click an interactive element -> resolve it to a catalog entry via the
  * `data-precedence-id` stamp (@precedence-dev/cli/stamp-loader) -> the element's
- * outcome tree is shown; check the outcomes worth tracking, name each, add a
- * meaning, tick the properties (including app state — localStorage / context) ->
- * POST the plan to the wizard. Fetches `GET /plan` first so whatever's already
- * tracked shows up, stays checked, and rides along on send (merge, not replace).
+ * outcome tree is shown; for each outcome worth tracking, name it, write a
+ * meaning, choose + rename properties, add constants, and see the exact
+ * `precedence.track(...)` call it will bake -> POST the plan to the wizard.
+ * Fetches `GET /plan` first so whatever's already tracked shows up, stays
+ * checked, and rides along on send (merge, not replace).
  *
  * Vanilla, self-contained, runs in a shadow root so nothing here touches the
  * host app's styles. No build step. The pure helpers are exported for tests
@@ -15,6 +16,8 @@
  */
 (function () {
   "use strict";
+
+  var RESERVED = { psc_id: 1, psc_v: 1 };
 
   /* ---- pure: resolve a stamped node to a catalog entry ---------------------- */
   function entryFor(node, catalog) {
@@ -29,11 +32,12 @@
   /* ---- pure: an entry's outcome TREE -------------------------------------------
    * One node per action, each with its pruned branch subtree. A node is
    * `trackable` when it's a real end state (a terminal branch, or the action
-   * itself for "any outcome"); intermediate nodes (guards passed, a loop that
-   * still contains outcomes) render as structure only. Pruned out entirely:
+   * itself for "any outcome"); intermediate nodes render as structure only.
+   * Pruned out entirely:
    *   - `synthetic` branches ("otherwise, nothing happens")
    *   - a loop whose whole subtree just builds a local array (.push/.splice…)
-   *     and produces no call, state write, or outcome — counted in `hidden`.
+   *     and produces no call, state write, or outcome — counted in `hidden`
+   *   - a pass-through with nothing trackable under it
    * A handler that forwards to a prop pulls its outcomes from the render site
    * (`action.forwardsTo`); the person picking never sees the parent component. */
   function nodesFor(entry, catalog) {
@@ -69,8 +73,6 @@
         if (b.synthetic) return;
         if (b.kind === "loop" && !meaningful(b)) { hidden++; return; }
         var node = nodeOf(b, walk(b.children || []));
-        // a pass-through (guard-passed, a bare container) with nothing trackable
-        // under it carries no information the picker can act on
         if (node.trackable || hasTrackable(node)) out.push(node);
       });
       return out;
@@ -92,11 +94,6 @@
     };
   }
 
-  /* resolve `action.forwardsTo` → an outcome tree. Injection anchors are the
-   * render-site action(s), real and injectable there. One render site: use its
-   * tree, relabelled from the inner control's spliced copy (nicer wording).
-   * Several: one node per distinct outcome, anchors merged, picker resolves per
-   * instance. */
   function forwarded(action, catalog) {
     var byId = {};
     (catalog.elements || []).forEach(function (e) { (e.actions || []).forEach(function (a) { byId[a.attachId] = a; }); });
@@ -143,30 +140,92 @@
   }
   function nm(p) { return p.name; }
 
+  /* ---- pure: derive the plan's { properties, accessors } from editor rows ----
+   * A row is a prop (a name in scope), a renamed prop (`key` ≠ `name`, value
+   * expr fixed), an ambient read (localStorage / context), or a constant. Every
+   * shape is just a key + a value expression, which is exactly `properties[]` +
+   * `accessors{}` — no new plan fields, no new instrument code. */
+  function fromRows(rows) {
+    var properties = [], accessors = {};
+    (rows || []).forEach(function (r) {
+      if (!r.key) return;
+      properties.push(r.key);
+      if (r.kind === "const") accessors[r.key] = JSON.stringify(r.value);
+      else if (r.kind === "ambient") accessors[r.key] = r.accessor;         // string or {hook,context,path}
+      else if (r.key !== r.name) accessors[r.key] = r.name;                  // renamed in-scope prop
+      // else: shorthand, `key` is a bare in-scope binding — no accessor
+    });
+    return { properties: properties, accessors: accessors };
+  }
+
   /* ---- pure: picked nodes -> the plan events @precedence-dev/instrument consumes -- */
   function toEvents(picked) {
     return Object.keys(picked).map(function (id) {
       var p = picked[id];
+      var pa = fromRows(p.rows);
       var anchors = p.anchors && p.anchors.length
         ? p.anchors
         : [{ id: id, fingerprint: p.fingerprint, inject: p.inject || "statement" }];
-      var ev = { name: (p.name || "event").trim(), properties: p.props || [], anchors: anchors };
-      if (p.description) ev.description = p.description.trim();
-      if (p.accessors && Object.keys(p.accessors).length) ev.accessors = p.accessors;
+      var ev = { name: cleanName(p.name), properties: pa.properties, anchors: anchors };
+      if (p.description && p.description.trim()) ev.description = p.description.trim();
+      if (Object.keys(pa.accessors).length) ev.accessors = pa.accessors;
       return ev;
     });
   }
 
+  /* ---- pure: the guard rails ---- */
+  function cleanName(s) {
+    return String(s || "").trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "event";
+  }
+  function cleanKey(s, fallback) {
+    var k = String(s || "").trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+    return !k || RESERVED[k] ? (fallback || "") : k;
+  }
+  function coerce(v) {
+    var t = String(v).trim();
+    if (t === "true") return true;
+    if (t === "false") return false;
+    if (t === "null") return null;
+    if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+    return String(v);
+  }
+  /** cyrb53 — the anchor hash the SDK / instrument bake as `psc_id`. A copy so
+   *  the preview shows the real value; keep in sync with the other three copies. */
+  function pscId(structuralId) {
+    var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (var i = 0; i < structuralId.length; i++) {
+      var ch = structuralId.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return "p_" + (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+  /** the exact call @precedence-dev/instrument would bake for this event */
+  function trackCall(name, anchorId, rows) {
+    var pa = fromRows(rows);
+    var parts = ['psc_id: "' + pscId(anchorId) + '"'];
+    pa.properties.forEach(function (k) {
+      var a = pa.accessors[k];
+      parts.push(a == null || a === k ? k : k + ": " + (typeof a === "string" ? a : "<" + a.hook + "().." + a.path + ">"));
+    });
+    return 'precedence.track("' + cleanName(name) + '", { ' + parts.join(", ") + " })";
+  }
+
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { entryFor: entryFor, nodesFor: nodesFor, toEvents: toEvents };
+    module.exports = {
+      entryFor: entryFor, nodesFor: nodesFor, toEvents: toEvents,
+      fromRows: fromRows, trackCall: trackCall, cleanName: cleanName, cleanKey: cleanKey,
+    };
   }
   if (typeof document === "undefined" || !document.currentScript) return; // required for tests, not a browser
 
   /* ---- browser: the overlay -------------------------------------------------- */
   var AT = new URL(document.currentScript.src).origin;
   var catalog = null;
-  var picked = {};   // nodeId -> { name, description, fingerprint, inject, props, accessors, anchors }
-  var inPlan = {};    // nodeId -> { name, properties, description }
+  var picked = {};   // nodeId -> { name, description, fingerprint, inject, anchors, rows }
+  var inPlan = {};    // nodeId -> true (already in .precedence/plan.json)
   var carry = [];     // existing multi-anchor (discriminated) events, passed through untouched
   var root, panel, barEl, paused = false;
 
@@ -180,15 +239,30 @@
     if (Object.keys(inPlan).length || carry.length) showPlan();
   }).catch(function () { alert("Precedence: couldn't load the catalog from " + AT); });
 
+  /** rebuild editor rows from a plan event's properties + accessors */
+  function rowsFromPlan(ev) {
+    var acc = ev.accessors || {};
+    return (ev.properties || []).map(function (k) {
+      var a = acc[k];
+      if (a == null) return { kind: "prop", key: k, name: k };
+      if (typeof a === "object") return { kind: "ambient", key: k, name: k, accessor: a };
+      if (/^(["']).*\1$|^-?\d|^(true|false|null)$/.test(a.trim())) {
+        try { return { kind: "const", key: k, value: JSON.parse(a.replace(/^'|'$/g, '"')) }; } catch (e) { /* fall through */ }
+      }
+      return /localStorage|sessionStorage|JSON\.parse/.test(a)
+        ? { kind: "ambient", key: k, name: k, accessor: a }
+        : { kind: "prop", key: k, name: a };   // a bare identifier → a renamed in-scope prop
+    });
+  }
   function seedExisting(plan) {
     ((plan && plan.events) || []).forEach(function (ev) {
       var an = ev.anchors || [];
       if (an.length === 1) {
         var a = an[0];
-        inPlan[a.id] = { name: ev.name, properties: ev.properties || [], description: ev.description || "" };
+        inPlan[a.id] = true;
         picked[a.id] = {
           name: ev.name, description: ev.description || "", fingerprint: a.fingerprint,
-          inject: a.inject || "statement", props: ev.properties || [], accessors: ev.accessors || {},
+          inject: a.inject || "statement", anchors: null, rows: rowsFromPlan(ev),
         };
       } else if (an.length > 1) {
         carry.push(ev);
@@ -199,35 +273,38 @@
   function mount() {
     var host = document.createElement("div");
     host.id = "precedence-picker";
-    host.style.cssText = "position:fixed;top:0;right:0;z-index:2147483647;width:384px;max-width:94vw";
+    host.style.cssText = "position:fixed;top:0;right:0;z-index:2147483647;width:404px;max-width:96vw";
     root = host.attachShadow({ mode: "open" });
     root.innerHTML =
       "<style>:host{all:initial}*{box-sizing:border-box;font:13px/1.5 system-ui,sans-serif}" +
       ".wrap{background:#fff;border:1px solid #e4e4e2;border-top:0;border-right:0;border-bottom-left-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.2);overflow:hidden}" +
       ".bar{background:#1c1d1f;color:#fff;padding:9px 12px;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}" +
-      ".bar b{font-weight:650}.bar .sp{flex:1}" +
-      ".msg{flex-basis:100%;order:9;color:#c9cbcf;font-size:12px}" +
+      ".bar b{font-weight:650}.bar .sp{flex:1}.msg{flex-basis:100%;order:9;color:#c9cbcf;font-size:12px}" +
       "button{font:inherit;border:1px solid #3a3b3e;background:#2a2b2e;color:#fff;border-radius:6px;padding:4px 9px;cursor:pointer}" +
       "button.go{background:#2f9e44;border-color:#2f9e44}button.paused{background:#b5850b;border-color:#b5850b}" +
-      ".panel{background:#fff;color:#1c1d1f;max-height:70vh;overflow:auto;padding:12px 14px;border-top:1px solid #e4e4e2}" +
+      "button.mini{background:#f0f0ee;border-color:#e0e0dd;color:#3a3b3e;padding:2px 7px;font-size:11px}" +
+      ".panel{background:#fff;color:#1c1d1f;max-height:72vh;overflow:auto;padding:12px 14px;border-top:1px solid #e4e4e2}" +
       ".panel[hidden]{display:none}" +
       ".el{font-family:ui-monospace,Menlo,monospace;font-weight:700;word-break:break-all}" +
       ".loc{color:#6b6f76;font-size:11px;margin-bottom:10px;word-break:break-all}" +
       ".nd{margin:1px 0}.nd .nd{margin-left:9px;border-left:1px solid #ececea;padding-left:9px}" +
-      ".st{color:#3a3b3e;font-weight:600;font-size:12px;padding:5px 0}" +
-      ".st .pi{color:#8a8f98;font-weight:400}" +
+      ".st{color:#3a3b3e;font-weight:600;font-size:12px;padding:5px 0}.st .pi,.brh .pi{color:#8a8f98;font-weight:400}" +
       ".hint{color:#9a9ea6;font-size:11px;font-style:italic;padding:3px 0}" +
       ".br{padding:5px 0}" +
-      ".brh{display:flex;gap:7px;align-items:flex-start;cursor:pointer}" +
-      ".brh .lab{flex:1}.brh input[type=checkbox]{margin-top:3px}" +
+      ".brh{display:flex;gap:7px;align-items:flex-start;cursor:pointer}.brh .lab{flex:1}.brh input[type=checkbox]{margin-top:3px}" +
       ".tag{font-size:10px;color:#2f9e44;white-space:nowrap;margin-top:2px}" +
       ".fx{color:#6b6f76;font-size:11.5px;margin:1px 0 0 21px}" +
       ".brb{margin:6px 0 4px 21px}.brb[hidden]{display:none}" +
-      ".fld{margin-bottom:6px}" +
-      ".fld input{width:100%;font:12px ui-monospace,monospace;border:1px solid #e4e4e2;border-radius:5px;padding:3px 6px}" +
-      ".ph{color:#6b6f76;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin:7px 0 2px}" +
-      ".pl{display:flex;flex-wrap:wrap;gap:3px 12px}" +
-      ".pl label{font:12px ui-monospace,monospace;display:flex;gap:4px;align-items:center;cursor:pointer}" +
+      ".fld{margin-bottom:6px}.fld input{width:100%;font:12px ui-monospace,monospace;border:1px solid #e4e4e2;border-radius:5px;padding:3px 6px}" +
+      ".ph{color:#6b6f76;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin:8px 0 3px}" +
+      ".prow{display:flex;gap:6px;align-items:center;font:12px ui-monospace,monospace;padding:1px 0}" +
+      ".prow input[type=checkbox]{flex:none}" +
+      ".prow .k{width:130px;font:12px ui-monospace,monospace;border:1px solid #e4e4e2;border-radius:4px;padding:2px 5px}" +
+      ".prow .v{flex:1;color:#6b6f76;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".prow .cv{flex:1;font:12px ui-monospace,monospace;border:1px solid #e4e4e2;border-radius:4px;padding:2px 5px}" +
+      ".prow .x{cursor:pointer;color:#b02a2a;font-size:11px}" +
+      ".prev{margin:8px 0 2px;background:#1c1d1f;color:#e8e8e8;border-radius:6px;padding:8px 10px;font:11.5px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all}" +
+      ".prev .lk{color:#8a8f98}" +
       ".pe{padding:3px 0;font:12px ui-monospace,monospace}.pe b{color:#2f9e44}" +
       ".hi{outline:2px solid #2f6fed!important;outline-offset:1px}</style>" +
       "<div class=wrap>" +
@@ -292,6 +369,11 @@
     f.appendChild(node);
     return f;
   }
+  function perItem() {
+    var s = document.createElement("span");
+    s.className = "pi"; s.textContent = "  · once per item";
+    return s;
+  }
 
   /* the read-only view of what's already in .precedence/plan.json */
   function showPlan() {
@@ -300,15 +382,16 @@
     panel.appendChild(el("el", ".precedence/plan.json"));
     var ids = Object.keys(inPlan);
     if (!ids.length && !carry.length) { panel.appendChild(el("loc", "empty — nothing tracked yet")); return; }
-    ids.forEach(function (id) { panel.appendChild(planRow(inPlan[id].name, inPlan[id].properties)); });
-    carry.forEach(function (e) { panel.appendChild(planRow(e.name, e.properties || [], (e.anchors || []).length + " outcomes")); });
+    ids.forEach(function (id) { panel.appendChild(planRow(picked[id])); });
+    carry.forEach(function (e) { panel.appendChild(planRow({ name: e.name, rows: rowsFromPlan(e) }, (e.anchors || []).length + " outcomes")); });
     panel.appendChild(el("loc", "click an element to add to this or edit it"));
   }
-  function planRow(name, props, note) {
+  function planRow(p, note) {
     var r = el("pe");
-    var b = document.createElement("b"); b.textContent = "✓ " + name;
+    var b = document.createElement("b"); b.textContent = "✓ " + cleanName(p.name);
     r.appendChild(b);
-    if (props && props.length) r.appendChild(document.createTextNode("  (" + props.join(", ") + ")"));
+    var keys = (p.rows || []).map(function (x) { return x.key; }).filter(Boolean);
+    if (keys.length) r.appendChild(document.createTextNode("  (" + keys.join(", ") + ")"));
     if (note) r.appendChild(document.createTextNode("  · " + note));
     return r;
   }
@@ -324,105 +407,134 @@
 
   function renderNode(n, entry) {
     var box = el("nd");
-    if (n.trackable) box.appendChild(trackRow(n, entry));
-    else box.appendChild(structRow(n));
+    box.appendChild(n.trackable ? trackRow(n, entry) : structRow(n));
     (n.children || []).forEach(function (c) { box.appendChild(renderNode(c, entry)); });
     if (n.hidden) box.appendChild(el("hint", "+ " + n.hidden + (n.hidden > 1 ? " steps" : " step") + " with no outcome (not tracked)"));
     return box;
   }
 
-  function perItem() {
-    var s = document.createElement("span");
-    s.className = "pi"; s.textContent = "  · once per item";
-    return s;
-  }
   function structRow(n) {
     var d = el("st");
     d.textContent = n.label;
     if (n.perItem) d.appendChild(perItem());
     return d;
   }
-  /** the "…, and no error is thrown" tail of firesWhen, unless it just repeats the label */
   function detailOf(n) {
     var det = (n.firesWhen || "").replace(/^Fires when /, "");
     return det && det.replace(/[.\s]+$/, "").toLowerCase() !== String(n.label).toLowerCase() ? det : "";
   }
+  function previewAnchor(n) { return (n.anchors && n.anchors[0] && n.anchors[0].id) || n.id; }
+
+  /** the starting editor rows for a fresh pick: every in-scope candidate prop, checked. */
+  function seedRows(n) { return (n.props || []).map(function (p) { return { kind: "prop", key: p, name: p }; }); }
 
   function trackRow(n, entry) {
-    var ex = inPlan[n.id], cur = picked[n.id];
-    var sel = (cur && cur.props) || (ex && ex.properties) || (n.props || []).slice();
+    var planned = inPlan[n.id];
+    var cur = picked[n.id] || { name: n.suggestedName || "event", description: "", rows: seedRows(n) };
+    var on = !!picked[n.id];
     var wrap = el("br");
 
-    var cb = input("checkbox"); cb.checked = !!cur;
+    var cb = input("checkbox"); cb.checked = on;
     var lab = el("lab", n.label);
     if (n.perItem) lab.appendChild(perItem());
     var head = el("brh");
     head.appendChild(cb); head.appendChild(lab);
-    if (ex) head.appendChild(el("tag", "● in plan"));
-    head.onclick = function (e) { if (e.target !== cb) { cb.checked = !cb.checked; sync(); } };
+    if (planned) head.appendChild(el("tag", "● in plan"));
+    head.onclick = function (e) { if (e.target !== cb) { cb.checked = !cb.checked; onToggle(); } };
     wrap.appendChild(head);
 
     var det = detailOf(n);
     if (det) wrap.appendChild(el("fx", det));
 
-    var body = el("brb"); body.hidden = !cur;
+    var body = el("brb"); body.hidden = !on;
     var name = input("text");
-    name.value = (cur && cur.name) || (ex && ex.name) || n.suggestedName || "event";
+    name.value = cur.name;
+    name.onblur = function () { name.value = cleanName(name.value); sync(); };
     var mean = input("text");
     mean.placeholder = "business definition, success criteria, exclusions";
-    mean.value = (cur && cur.description) || (ex && ex.description) || "";
+    mean.value = cur.description || "";
     body.appendChild(field("event name", name));
     body.appendChild(field("what this event means", mean));
 
-    var amb = (catalog && catalog.ambientProps) || [];
-    var shown = section(body, "properties to send", n.props || [], sel, null)
-              + section(body, "app state — localStorage / context", amb.map(nm), sel, amb);
-    if (!shown) body.appendChild(el("ph", "no properties in scope here"));
+    var rows = cur.rows.map(function (r) { return Object.assign({}, r); });   // editable copy
+    var propHost = el("div");
+    body.appendChild(el("ph", "properties  ·  pick, rename the key, add constants"));
+    body.appendChild(propHost);
+    var prev = el("prev");
+    body.appendChild(prev);
     wrap.appendChild(body);
 
-    function sync() {
-      if (cb.checked) {
-        var props = [], acc = {};
-        body.querySelectorAll(".pl input").forEach(function (i) {
-          if (!i.checked) return;
-          props.push(i._pm);
-          if (i._amb) acc[i._pm] = i._amb.accessor || i._amb.via;
-        });
-        picked[n.id] = {
-          name: name.value.trim(), description: mean.value.trim(),
-          fingerprint: n.fingerprint, inject: n.inject,
-          props: props, accessors: acc, anchors: n.anchors || null,
-        };
+    function draw() {
+      propHost.innerHTML = "";
+      (n.props || []).forEach(function (pn) { propHost.appendChild(candRow(pn, null)); });
+      ((catalog && catalog.ambientProps) || []).forEach(function (p) { propHost.appendChild(candRow(p.name, p)); });
+      rows.filter(function (r) { return r.kind === "const"; }).forEach(function (r) { propHost.appendChild(constRow(r)); });
+      var add = document.createElement("button");
+      add.className = "mini"; add.textContent = "＋ constant";
+      add.onclick = function () { rows.push({ kind: "const", key: "", value: "" }); draw(); sync(); };
+      propHost.appendChild(add);
+      renderPreview();
+    }
+    function candRow(pnName, ambient) {
+      var r = rows.filter(function (x) { return x.kind !== "const" && (x.name === pnName || x.key === pnName); })[0];
+      var line = el("prow");
+      var pc = input("checkbox"); pc.checked = !!r;
+      pc.onchange = function () {
+        if (pc.checked) rows.push({ kind: ambient ? "ambient" : "prop", key: pnName, name: pnName, accessor: ambient && (ambient.accessor || ambient.via) });
+        else rows = rows.filter(function (x) { return x !== r; });
+        draw(); sync();
+      };
+      line.appendChild(pc);
+      if (r) {
+        var k = input("text"); k.className = "k"; k.value = r.key;
+        k.oninput = function () { r.key = cleanKey(k.value, pnName); renderPreview(); sync(); };
+        k.onblur = function () { k.value = r.key; };
+        line.appendChild(k);
+        line.appendChild(el("span", "= " + (ambient ? shortAcc(ambient) : pnName) + (ambient && ambient.identity ? "  ⚑" : ""))).className = "v";
       } else {
-        delete picked[n.id];
+        line.appendChild(el("span", pnName + (ambient ? "  · " + ambient.source + (ambient.identity ? " ⚑" : "") : ""))).className = "v";
       }
-      body.hidden = !cb.checked;
+      return line;
+    }
+    function constRow(r) {
+      var line = el("prow");
+      line.appendChild(input("checkbox")).checked = true;
+      var k = input("text"); k.className = "k"; k.placeholder = "key"; k.value = r.key;
+      k.oninput = function () { r.key = cleanKey(k.value, ""); renderPreview(); sync(); };
+      var eq = el("span", "="); eq.style.color = "#6b6f76";
+      var v = input("text"); v.className = "cv"; v.placeholder = "\"value\" / 42 / true"; v.value = r.value;
+      v.oninput = function () { r.value = coerce(v.value); renderPreview(); sync(); };
+      var x = el("span", "✕"); x.className = "x";
+      x.onclick = function () { rows = rows.filter(function (z) { return z !== r; }); draw(); sync(); };
+      line.appendChild(k); line.appendChild(eq); line.appendChild(v); line.appendChild(x);
+      return line;
+    }
+    function renderPreview() {
+      prev.innerHTML = "";
+      prev.appendChild(el("span", "// baked at ")).className = "lk";
+      prev.appendChild(document.createTextNode(entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line + "\n"));
+      prev.appendChild(document.createTextNode(trackCall(name.value, previewAnchor(n), rows)));
+    }
+    function onToggle() { if (cb.checked) sync(); else { delete picked[n.id]; body.hidden = true; count(); } }
+    function sync() {
+      if (!cb.checked) return;
+      picked[n.id] = {
+        name: name.value.trim(), description: mean.value.trim(),
+        fingerprint: n.fingerprint, inject: n.inject, anchors: n.anchors || null,
+        rows: rows.filter(function (r) { return r.key || r.kind !== "const"; }),
+      };
+      body.hidden = false;
       count();
     }
-    cb.onchange = sync; name.oninput = sync; mean.oninput = sync;
-    body.addEventListener("change", function (e) { if (e.target.matches(".pl input")) sync(); });
+    cb.onchange = onToggle;
+    name.oninput = sync; mean.oninput = sync;
+    draw();
     return wrap;
   }
 
-  /** append one labelled checkbox section to `body`; returns 1 if it rendered.
-   *  `ambient` (or null): the AmbientProp[] backing these names — a checked
-   *  ambient entry carries its `accessor` / `via` into the plan. */
-  function section(body, title, names, sel, ambient) {
-    if (!names.length) return 0;
-    body.appendChild(el("ph", title));
-    var pl = el("pl");
-    names.forEach(function (pn) {
-      var meta = ambient && ambient.filter(function (p) { return p.name === pn; })[0];
-      var lbl = document.createElement("label");
-      var pc = input("checkbox");
-      pc.checked = sel.indexOf(pn) >= 0;
-      pc._pm = pn; pc._amb = meta || null;
-      lbl.appendChild(pc);
-      lbl.appendChild(document.createTextNode(pn + (meta && meta.identity ? "  ⚑" : "")));
-      pl.appendChild(lbl);
-    });
-    body.appendChild(pl);
-    return 1;
+  function shortAcc(a) {
+    var s = a.accessor || (a.via && a.via.hook + "()." + a.via.path) || a.name;
+    return s.length > 34 ? s.slice(0, 33) + "…" : s;
   }
 
   function send() {

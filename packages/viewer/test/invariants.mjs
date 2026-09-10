@@ -115,7 +115,7 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
 {
   const { createRequire } = await import("node:module");
   const require = createRequire(import.meta.url);
-  const { entryFor, nodesFor, toEvents } = require(path.resolve(here, "../browser/agent.js"));
+  const { entryFor, nodesFor, toEvents, fromRows, trackCall, cleanName, cleanKey } = require(path.resolve(here, "../browser/agent.js"));
 
   const A = "src/ShiftPage.tsx#ShiftPage::button[update-shifts]";
   const agentCat = { elements: [{
@@ -172,20 +172,59 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
     all.filter((n) => /succeeds|fails/.test(n.label) && n.trackable).length === 2
       && all.some((n) => n.id.endsWith("|success") && n.suggestedName === "update_shifts_success"));
 
+  /* ---- the guard rails: name / key sanitising, value coercion ---- */
+  check("agent guardrails: cleanName → snake identifier; cleanKey rejects the reserved psc_id",
+    cleanName("  Shifts Updated! ") === "Shifts_Updated"
+      && cleanKey("admin id", "x") === "admin_id"
+      && cleanKey("psc_id", "adminId") === "adminId"     // reserved → falls back
+      && cleanKey("", "adminId") === "adminId");
+
+  /* ---- editor rows -> the plan's { properties, accessors } (no new plan fields) ---- */
+  const pa = fromRows([
+    { kind: "prop", key: "adminId", name: "adminId" },                     // shorthand
+    { kind: "prop", key: "admin_id", name: "adminId" },                    // renamed → accessor is the bare binding
+    { kind: "ambient", key: "token", accessor: 'localStorage.getItem("t")' }, // ambient read, renamed key
+    { kind: "const", key: "surface", value: "admin_portal" },              // literal
+    { kind: "const", key: "step", value: 3 },
+  ]);
+  check("agent fromRows: shorthand prop → no accessor; rename / ambient / const → an accessor expr",
+    JSON.stringify(pa.properties) === '["adminId","admin_id","token","surface","step"]'
+      && pa.accessors.adminId === undefined
+      && pa.accessors.admin_id === "adminId"
+      && pa.accessors.token === 'localStorage.getItem("t")'
+      && pa.accessors.surface === '"admin_portal"'
+      && pa.accessors.step === "3",
+    JSON.stringify(pa));
+
   const events = toEvents({
     [A + "|onClick|success"]: { name: " shifts_updated ", description: " a save succeeded ",
       fingerprint: { handler: "onClick", conditionKey: "resolved" }, inject: "statement",
-      props: ["adminId", "accessToken"], accessors: { accessToken: 'localStorage.getItem("accessToken")' } },
-    [A + "|onClick|error"]: { name: "shifts_update_failed", fingerprint: {}, inject: "statement", props: [] },
+      rows: [
+        { kind: "prop", key: "adminId", name: "adminId" },
+        { kind: "ambient", key: "token", accessor: 'localStorage.getItem("accessToken")' },
+        { kind: "const", key: "surface", value: "admin_portal" },
+      ] },
+    [A + "|onClick|error"]: { name: "shifts_update_failed", fingerprint: {}, inject: "statement", rows: [] },
   });
-  check("agent toEvents: picked nodes -> { name, properties, anchors:[{id,fingerprint,inject}] } instrument consumes",
+  check("agent toEvents: rows → { name, properties, accessors, anchors } instrument consumes",
     events.length === 2 && events[0].name === "shifts_updated"
-      && JSON.stringify(events[0].properties) === '["adminId","accessToken"]'
+      && JSON.stringify(events[0].properties) === '["adminId","token","surface"]'
+      && events[0].accessors.token === 'localStorage.getItem("accessToken")'
+      && events[0].accessors.surface === '"admin_portal"'
+      && events[0].accessors.adminId === undefined
       && events[0].anchors[0].id.endsWith("|success") && events[0].anchors[0].fingerprint.conditionKey === "resolved");
-  check("agent toEvents: a selected ambient prop rides along as `accessors`; absent when none",
-    events[0].accessors.accessToken === 'localStorage.getItem("accessToken")' && !("accessors" in events[1]));
+  check("agent toEvents: no properties / accessors → those keys are omitted",
+    !("accessors" in events[1]) && JSON.stringify(events[1].properties) === "[]");
   check("agent toEvents: a per-row `description` is carried through, trimmed; absent when not set",
     events[0].description === "a save succeeded" && !("description" in events[1]));
+
+  /* ---- the payload preview: the exact call instrument bakes ---- */
+  const call = trackCall("shifts updated", A + "|onClick|success", [
+    { kind: "prop", key: "adminId", name: "adminId" },
+    { kind: "const", key: "surface", value: "admin_portal" },
+  ]);
+  check("agent trackCall: renders precedence.track(name, { psc_id, …selected props })",
+    /^precedence\.track\("shifts_updated", \{ psc_id: "p_[a-z0-9]+", adminId, surface: "admin_portal" \}\)$/.test(call), call);
 
   /* forwardsTo: a control that delegates to a prop shows the outcomes from the
    * render site(s) — the picker never surfaces the parent component to the PM */
