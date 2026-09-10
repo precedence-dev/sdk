@@ -8,7 +8,7 @@ analyzer.
 | package | what it is |
 | --- | --- |
 | [`packages/sdk`](packages/sdk) — `@precedence-dev/sdk` | the runtime for `@precedence-dev/instrument`'s `emit: "runtime"` mode. `installPrecedence` maps an anchor id → event, shapes the payload, catches synthetic-anchor clicks. Framework-agnostic, zero deps. |
-| [`packages/viewer`](packages/viewer) — `@precedence-dev/viewer` | serves the live picker (`browser/agent.js`, injected into your running app by `@precedence-dev/sdk`) and receives the exported plan. `@precedence-dev/wizard` drives it. |
+| [`packages/viewer`](packages/viewer) — `@precedence-dev/viewer` | the outcome picker: a self-contained `index.html` that renders a `catalog.pcs` and exports a plan. Plus `precedence-view`, which bakes a shareable static copy. |
 
 ```sh
 npm install

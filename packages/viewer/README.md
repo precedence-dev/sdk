@@ -1,50 +1,63 @@
 # @precedence-dev/viewer
 
-Serves Precedence's **live picker** and hands back the event plan.
+A browser for Precedence's `catalog.pcs` (produced by
+[`@precedence-dev/cli`](https://github.com/precedence-dev/core/tree/main/packages/cli)):
+review the tracking attach points a repo exposes without running the app, and
+pick the ones to track.
 
-The picker (`browser/agent.js`) is a vanilla overlay that
-[`@precedence-dev/sdk`](https://github.com/precedence-dev/sdk/tree/main/packages/sdk)
-injects into your running dev build when you open it with
-`?precedence=pick&at=<this server>`. You hover and click real elements; it
-resolves each click to a catalog entry via the `data-precedence-id` stamp
-([`@precedence-dev/cli/stamp-loader`](https://github.com/precedence-dev/core/tree/main/packages/cli)),
-shows that element's outcomes — including outcomes that live one level out, when
-the handler forwards to a prop — and POSTs the picked ones back as a plan
-[`@precedence-dev/instrument`](https://github.com/precedence-dev/instrument) consumes.
-The overlay runs in a shadow root, so no style collisions.
+`index.html` is a self-contained page. Drop a `catalog.pcs` onto it (plain JSON;
+a `.json` file works too), or open it with `?src=<url>`. It shows every element /
+action / outcome-branch tree, lets you pick nodes to define events (properties to
+send, group binding, per-anchor status, `outcome` / `placement` discriminators
+for "one event, N branches"), and exports the plan
+[`@precedence-dev/instrument`](https://github.com/precedence-dev/instrument) consumes:
+`{ events: [{ name, properties, anchors: [{ id, fingerprint, staticProps? }] }] }`.
 
-[`@precedence-dev/wizard`](https://github.com/precedence-dev/wizard) drives this
-end to end. You normally don't call this package directly.
+## Live picker (`browser/agent.js`)
 
-## API
+`servePlan` also serves `agent.js` — a vanilla overlay `@precedence-dev/sdk` injects
+into a running dev build (opened with `?precedence=pick&at=<this server>`). You
+hover/click real elements; it resolves each click to a catalog entry via the
+`data-precedence-id` stamp ([`@precedence-dev/cli/stamp-loader`](https://github.com/precedence-dev/core/tree/main/packages/cli)),
+shows that element's outcome branches, and POSTs the picked ones back as a plan.
+`@precedence-dev/wizard` drives this. The overlay runs in a shadow root — no style
+collisions.
 
-```ts
-import { servePlan } from "@precedence-dev/viewer";
+## Use
 
-const plan = await servePlan(catalog, {
-  plan: existingPlan,              // seed GET /plan so the picker merges, not replaces
-  open: false,                    // the caller opens the app itself
-  onListen: (url) => open(`${appUrl}/?precedence=pick&at=${encodeURIComponent(url)}`),
-});
+**In the browser:** open `index.html`, drop a `catalog.pcs` on it (or `?src=<url>`).
+
+**Served (`--serve`):** run a local server, open the picker, and write the plan
+the moment you click "send to wizard" — no file to move. This is what
+`@precedence-dev/wizard` uses.
+
+```
+precedence-view catalog.pcs --serve                 # writes ./.precedence/plan.json
+precedence-view catalog.pcs --serve --out plan.json
 ```
 
-`servePlan` starts a one-shot HTTP server on `127.0.0.1` and resolves with the
-plan object the picker POSTs to `/plan` (rejects on timeout, default 30 min).
+**Baked (share / CI):** `precedence-view` writes a self-contained copy with the
+catalog pre-loaded.
 
-Routes, all `Access-Control-Allow-Origin: *` (the agent runs on the dev
-server's origin):
+```
+precedence-view catalog.pcs --open
+precedence-view ./build              # first catalog.pcs in a dir
+precedence --dir src --stdout | precedence-view -
+```
 
-| route | |
+| flag | meaning |
 | --- | --- |
-| `GET /agent.js` | the in-page picker |
-| `GET /catalog` | the catalog JSON |
-| `GET /plan` | the existing plan (from `opts.plan`), or `{ events: [] }` |
-| `POST /plan` | the export — resolves `servePlan()` |
+| `--serve` | serve the picker on `127.0.0.1`, write the exported plan |
+| `--out <file>` | bake: HTML path (default `./viz/index.html`); serve: plan path (`-` for stdout) |
+| `--open` | bake: open it when written (serve always opens) |
+| `--stdout` | bake: write the HTML to stdout |
 
-`openInBrowser(target)` is also exported (best-effort `open` / `xdg-open` / `start`).
+`servePlan(catalog)` and `renderHtml(catalog)` are also exported for use from Node.
 
-## What it is not
+## What it does not do
 
-There is no standalone page. Reviewing a catalog without running the app was a
-separate mode; it's gone — the picker works against the live DOM, and that's the
-point.
+- No parsing: it renders exactly what the analyzer emitted.
+- No live DOM — it works off `catalog.pcs`, not a running app. That's the point:
+  review on a PR or in CI without booting anything.
+
+Selections live in `localStorage`, keyed by the catalog's `commit`.

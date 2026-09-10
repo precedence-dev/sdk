@@ -1,39 +1,30 @@
 /**
- * Serve the live picker locally and hand back the plan the user exports.
+ * Serve the picker locally and hand back the plan the user exports.
  *
- * `@precedence-dev/wizard` uses this: start an HTTP server on 127.0.0.1, open
- * the user's running dev app at `?precedence=pick&at=<this server>` so its
- * `@precedence-dev/sdk` loads `agent.js` (the in-page picker), and resolve once
- * the picker POSTs a plan to `/plan`. One-shot — the server closes as soon as
- * it has a plan.
+ * `precedence-view --serve` and `@precedence-dev/wizard` both use this: start an
+ * HTTP server on 127.0.0.1, and resolve once something POSTs a plan to `/plan`.
+ * One-shot — the server closes as soon as it has a plan.
  *
  * Routes:
+ *   GET  /            the static picker (catalog baked in, POSTs to /plan)
  *   GET  /agent.js    the in-page picker agent (loaded by @precedence-dev/sdk)
  *   GET  /catalog     the catalog JSON (the agent fetches this)
- *   GET  /plan        the existing plan, so the agent shows what's tracked
+ *   GET  /plan        the existing plan, so the agent can show what's tracked
  *   POST /plan        the export — resolves servePlan()
  *
- * Every route carries `Access-Control-Allow-Origin: *` because the agent runs
- * on the dev server's origin, not this one.
+ * /agent.js, /catalog and GET /plan carry `Access-Control-Allow-Origin: *`
+ * because the agent runs on the dev server's origin, not this one.
  */
 import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
 
+import type { Catalog } from "./model";
+import { renderHtml } from "./render";
 import { openInBrowser } from "./open";
 
-/** the loose shape servePlan needs — really `@precedence-dev/cli`'s Catalog */
-export interface Catalog {
-  tool: string;
-  elements: unknown[];
-  attachPoints?: number;
-  groups?: unknown[];
-  [k: string]: unknown;
-}
-
 export interface ServeOpts {
-  /** open a browser at the served URL (default true). The wizard passes false
-   *  and opens the user's app itself from `onListen`. */
+  /** open a browser at the served URL (default true) */
   open?: boolean;
   /** open this URL instead of the served one — e.g. the app at `?precedence=pick` */
   openUrl?: string;
@@ -50,14 +41,22 @@ const MAX_BODY = 8 * 1024 * 1024;
 const AGENT = path.join(__dirname, "..", "browser", "agent.js");
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type" };
 
-/** Resolves with the plan object the in-page picker POSTs back. Rejects on timeout. */
+/** Resolves with the plan object the picker (static page or in-page agent) POSTs
+ *  back. Rejects on timeout. */
 export function servePlan(catalog: Catalog, opts: ServeOpts = {}): Promise<unknown> {
+  const page = renderHtml(catalog, { postUrl: "/plan" });
+
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const url = (req.url || "").split("?")[0];
 
       if (req.method === "OPTIONS") { res.writeHead(204, CORS); res.end(); return; }
 
+      if (req.method === "GET" && (url === "/" || url === "/index.html")) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page);
+        return;
+      }
       if (req.method === "GET" && url === "/agent.js") {
         let js: string;
         try { js = fs.readFileSync(AGENT, "utf8"); }

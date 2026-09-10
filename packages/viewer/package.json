@@ -1,7 +1,7 @@
 {
   "name": "@precedence-dev/viewer",
-  "version": "0.2.0",
-  "description": "Serve Precedence's live picker (browser/agent.js) against a catalog.pcs and receive the exported event plan. Zero dependencies; driven by @precedence-dev/wizard.",
+  "version": "0.1.3",
+  "description": "A browser for Precedence's catalog.pcs - review every tracking attach point, pick nodes, export an event plan. Zero dependencies; the CLI bakes a shareable static copy.",
   "license": "FSL-1.1-ALv2",
   "author": "Precedence",
   "repository": {
@@ -13,11 +13,16 @@
   "publishConfig": {
     "access": "public"
   },
+  "bin": {
+    "precedence-view": "bin/precedence-view.js"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist/",
+    "bin/",
     "browser/",
+    "index.html",
     "README.md",
     "LICENSE"
   ],
