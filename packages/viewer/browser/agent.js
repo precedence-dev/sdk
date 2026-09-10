@@ -18,6 +18,9 @@
   "use strict";
 
   var RESERVED = { psc_id: 1, psc_v: 1 };
+  // method / array names that leak into an object's `observedFields` when the
+  // shape was inferred from usage (`x.map(...)`) rather than a resolved type
+  var FIELD_NOISE = /^(split|sort|map|filter|forEach|some|every|find|reduce|includes|indexOf|slice|concat|join|trim|toLowerCase|toUpperCase|replace|match|test|toString|valueOf|length|push|pop)$/;
 
   /* ---- pure: resolve a stamped node to a catalog entry ---------------------- */
   function entryFor(node, catalog) {
@@ -47,7 +50,7 @@
       return {
         id: a.attachId, kind: "action", label: a.name + "  ·  any outcome",
         firesWhen: a.firesWhen, suggestedName: a.suggestedName, inject: "statement",
-        fingerprint: a.fingerprint, props: (a.candidateProps || []).map(nm),
+        fingerprint: a.fingerprint, props: pmeta(a.candidateProps),
         anchors: fwd ? fwd.anyAnchors : null, trackable: true, perItem: false,
         children: t.nodes, hidden: t.hidden,
       };
@@ -83,11 +86,20 @@
     return (n.children || []).some(function (c) { return c.trackable || hasTrackable(c); });
   }
 
+  /** candidateProps → the shape the editor needs: name, object-or-scalar, and
+   *  (for a type-resolved object) its real field list, so we can offer to flatten. */
+  function pmeta(cps) {
+    return (cps || []).map(function (p) {
+      return { name: p.name, shape: p.shape, src: p.typeSource,
+        fields: p.shape === "object" ? (p.observedFields || []) : [] };
+    });
+  }
+
   function nodeOf(b, kids) {
     return {
       id: b.id, kind: b.kind, label: b.label, firesWhen: b.firesWhen,
       suggestedName: b.suggestedName, fingerprint: b.fingerprint, inject: b.inject || "statement",
-      props: (b.candidateProps || []).map(nm), anchors: null,
+      props: pmeta(b.candidateProps), anchors: null,
       perItem: !!b.firesPerIteration,
       trackable: !!b.terminal && !b.synthetic,
       children: kids, hidden: 0,
@@ -124,7 +136,7 @@
       return {
         id: bs.map(function (b) { return b.id; }).join("+"), kind: "outcome", label: d.label,
         firesWhen: "", suggestedName: d.suggestedName, fingerprint: d.fingerprint, inject: "statement",
-        props: (d.candidateProps || []).map(nm),
+        props: pmeta(d.candidateProps),
         anchors: bs.map(function (b) { return { id: b.id, fingerprint: b.fingerprint, inject: b.inject || "statement" }; }),
         trackable: true, perItem: false, children: [], hidden: 0,
       };
@@ -138,7 +150,6 @@
     (function w(list) { (list || []).forEach(function (b) { if (b.terminal && !b.synthetic) out.push(b); w(b.children); }); })(bs);
     return out;
   }
-  function nm(p) { return p.name; }
 
   /* ---- pure: derive the plan's { properties, accessors } from editor rows ----
    * A row is a prop (a name in scope), a renamed prop (`key` ≠ `name`, value
@@ -217,6 +228,7 @@
     module.exports = {
       entryFor: entryFor, nodesFor: nodesFor, toEvents: toEvents,
       fromRows: fromRows, trackCall: trackCall, cleanName: cleanName, cleanKey: cleanKey,
+      candsOf: candsOf, samplePayload: samplePayload,
     };
   }
   if (typeof document === "undefined" || !document.currentScript) return; // required for tests, not a browser
@@ -309,10 +321,11 @@
       ".hi{outline:2px solid #2f6fed!important;outline-offset:1px}</style>" +
       "<div class=wrap>" +
       "<div class=bar><b>Precedence</b><span class=sp></span><span id=count></span>" +
+      "<button id=browse>browse</button>" +
       "<button id=plan hidden>plan</button>" +
       "<button class=pause id=pause>pause</button>" +
       "<button class=go id=send>send to wizard</button>" +
-      "<span class=msg id=msg>click an element to track it</span></div>" +
+      "<span class=msg id=msg>click an element to track it — or “browse” for one you can't reach</span></div>" +
       "<div class=panel id=panel hidden></div>" +
       "</div>";
     panel = root.getElementById("panel");
@@ -320,6 +333,7 @@
     document.documentElement.appendChild(host);
     root.getElementById("send").onclick = send;
     root.getElementById("pause").onclick = togglePause;
+    root.getElementById("browse").onclick = showBrowse;
     var planBtn = root.getElementById("plan");
     planBtn.onclick = showPlan;
     if (Object.keys(inPlan).length || carry.length) planBtn.hidden = false;
@@ -396,6 +410,44 @@
     return r;
   }
 
+  /* every catalog element, searchable — for controls the DOM can't resolve a
+   * click to: MUI Selects / menus / date pickers render their guts into a
+   * portal at <body>, and some components don't forward the stamp to a node. */
+  function showBrowse() {
+    panel.hidden = false;
+    panel.innerHTML = "";
+    panel.appendChild(el("el", "browse — every element in the catalog"));
+    var q = input("text");
+    q.placeholder = "filter by tag, label, component, file…";
+    q.style.cssText = "width:100%;font:12px system-ui;border:1px solid #e4e4e2;border-radius:5px;padding:4px 7px;margin:4px 0 8px";
+    panel.appendChild(q);
+    var list = el("div");
+    panel.appendChild(list);
+    var withActions = (catalog.elements || []).filter(function (e) { return (e.actions || []).some(function (a) { return !a.synthetic || a.branches; }); });
+    function draw() {
+      var t = q.value.toLowerCase().trim();
+      list.innerHTML = "";
+      withActions
+        .filter(function (e) { return !t || (e.tag + " " + e.label + " " + e.component + " " + e.file).toLowerCase().indexOf(t) >= 0; })
+        .slice(0, 150)
+        .forEach(function (e) {
+          var r = el("br");
+          r.style.cursor = "pointer";
+          var h = el("el", "<" + e.tag + ">" + (e.label ? ' "' + e.label + '"' : ""));
+          h.style.fontSize = "12px";
+          r.appendChild(h);
+          r.appendChild(el("loc", e.component + "  ·  " + e.file.replace(/.*\/src\//, "src/") + ":" + e.line
+            + "  ·  " + (e.actions || []).map(function (a) { return a.name; }).join(", ")));
+          r.onclick = function () { show(e); };
+          list.appendChild(r);
+        });
+      if (!list.children.length) list.appendChild(el("loc", "nothing matches"));
+    }
+    q.oninput = draw;
+    draw();
+    q.focus();
+  }
+
   function show(entry) {
     panel.hidden = false;
     panel.innerHTML = "";
@@ -425,28 +477,63 @@
   }
   function previewAnchor(n) { return (n.anchors && n.anchors[0] && n.anchors[0].id) || n.id; }
 
-  /** the starting editor rows for a fresh pick: every in-scope candidate prop, checked. */
-  function seedRows(n) { return (n.props || []).map(function (p) { return { kind: "prop", key: p, name: p }; }); }
+  /** the starting editor rows for a fresh pick: every in-scope candidate prop
+   *  (objects kept whole), checked. */
+  function seedRows(n) {
+    return (n.props || []).map(function (p) { return { kind: "prop", key: p.name, name: p.name }; });
+  }
+  /** the candidates one prop-meta contributes: the whole value, plus — for a
+   *  type-resolved object — each real field, so it can be flattened. */
+  function candsOf(p) {
+    var out = [{ name: p.name, key: p.name, expr: null }];   // whole value → shorthand
+    if (p.shape === "object" && p.src === "resolved") {
+      (p.fields || []).filter(function (f) { return f.length > 1 && !FIELD_NOISE.test(f); }).forEach(function (f) {
+        out.push({ name: p.name + "." + f, key: (p.name + "_" + f).replace(/[^A-Za-z0-9_]/g, "_"), expr: p.name + "." + f, field: true });
+      });
+    }
+    return out;
+  }
+  function metaByName(n) {
+    var m = {};
+    (n.props || []).forEach(function (p) { m[p.name] = p; });
+    return m;
+  }
+  /** a sample of the payload this event would send — placeholder scalars, real
+   *  object shapes, literal constants. */
+  function samplePayload(name, anchorId, rows, meta) {
+    var props = { psc_id: pscId(anchorId) };
+    (rows || []).forEach(function (r) {
+      if (!r.key) return;
+      if (r.kind === "const") { props[r.key] = r.value; return; }
+      var base = (r.name || r.key).split(".")[0];
+      var m = base === (r.name || r.key) && meta[base];
+      if (m && m.shape === "object" && (m.fields || []).length) {
+        var o = {}; m.fields.forEach(function (f) { o[f] = "‹" + f + "›"; });
+        props[r.key] = o;
+      } else {
+        props[r.key] = "‹" + (r.name || r.key) + "›";
+      }
+    });
+    return { event: cleanName(name), properties: props };
+  }
 
   function trackRow(n, entry) {
-    var planned = inPlan[n.id];
     var cur = picked[n.id] || { name: n.suggestedName || "event", description: "", rows: seedRows(n) };
-    var on = !!picked[n.id];
     var wrap = el("br");
 
-    var cb = input("checkbox"); cb.checked = on;
+    var cb = input("checkbox"); cb.checked = !!picked[n.id];
     var lab = el("lab", n.label);
     if (n.perItem) lab.appendChild(perItem());
     var head = el("brh");
     head.appendChild(cb); head.appendChild(lab);
-    if (planned) head.appendChild(el("tag", "● in plan"));
+    if (inPlan[n.id]) head.appendChild(el("tag", "● in plan"));
     head.onclick = function (e) { if (e.target !== cb) { cb.checked = !cb.checked; onToggle(); } };
     wrap.appendChild(head);
 
     var det = detailOf(n);
     if (det) wrap.appendChild(el("fx", det));
 
-    var body = el("brb"); body.hidden = !on;
+    var body = el("brb"); body.hidden = !picked[n.id];
     var name = input("text");
     name.value = cur.name;
     name.onblur = function () { name.value = cleanName(name.value); sync(); };
@@ -456,80 +543,116 @@
     body.appendChild(field("event name", name));
     body.appendChild(field("what this event means", mean));
 
-    var rows = cur.rows.map(function (r) { return Object.assign({}, r); });   // editable copy
-    var propHost = el("div");
-    body.appendChild(el("ph", "properties  ·  pick, rename the key, add constants"));
-    body.appendChild(propHost);
-    var prev = el("prev");
-    body.appendChild(prev);
+    var editor = outcomeEditor(n, entry, cur.rows, function () { return name.value; }, sync);
+    body.appendChild(editor.el);
     wrap.appendChild(body);
 
-    function draw() {
-      propHost.innerHTML = "";
-      (n.props || []).forEach(function (pn) { propHost.appendChild(candRow(pn, null)); });
-      ((catalog && catalog.ambientProps) || []).forEach(function (p) { propHost.appendChild(candRow(p.name, p)); });
-      rows.filter(function (r) { return r.kind === "const"; }).forEach(function (r) { propHost.appendChild(constRow(r)); });
-      var add = document.createElement("button");
-      add.className = "mini"; add.textContent = "＋ constant";
-      add.onclick = function () { rows.push({ kind: "const", key: "", value: "" }); draw(); sync(); };
-      propHost.appendChild(add);
-      renderPreview();
-    }
-    function candRow(pnName, ambient) {
-      var r = rows.filter(function (x) { return x.kind !== "const" && (x.name === pnName || x.key === pnName); })[0];
-      var line = el("prow");
-      var pc = input("checkbox"); pc.checked = !!r;
-      pc.onchange = function () {
-        if (pc.checked) rows.push({ kind: ambient ? "ambient" : "prop", key: pnName, name: pnName, accessor: ambient && (ambient.accessor || ambient.via) });
-        else rows = rows.filter(function (x) { return x !== r; });
-        draw(); sync();
-      };
-      line.appendChild(pc);
-      if (r) {
-        var k = input("text"); k.className = "k"; k.value = r.key;
-        k.oninput = function () { r.key = cleanKey(k.value, pnName); renderPreview(); sync(); };
-        k.onblur = function () { k.value = r.key; };
-        line.appendChild(k);
-        line.appendChild(el("span", "= " + (ambient ? shortAcc(ambient) : pnName) + (ambient && ambient.identity ? "  ⚑" : ""))).className = "v";
-      } else {
-        line.appendChild(el("span", pnName + (ambient ? "  · " + ambient.source + (ambient.identity ? " ⚑" : "") : ""))).className = "v";
-      }
-      return line;
-    }
-    function constRow(r) {
-      var line = el("prow");
-      line.appendChild(input("checkbox")).checked = true;
-      var k = input("text"); k.className = "k"; k.placeholder = "key"; k.value = r.key;
-      k.oninput = function () { r.key = cleanKey(k.value, ""); renderPreview(); sync(); };
-      var eq = el("span", "="); eq.style.color = "#6b6f76";
-      var v = input("text"); v.className = "cv"; v.placeholder = "\"value\" / 42 / true"; v.value = r.value;
-      v.oninput = function () { r.value = coerce(v.value); renderPreview(); sync(); };
-      var x = el("span", "✕"); x.className = "x";
-      x.onclick = function () { rows = rows.filter(function (z) { return z !== r; }); draw(); sync(); };
-      line.appendChild(k); line.appendChild(eq); line.appendChild(v); line.appendChild(x);
-      return line;
-    }
-    function renderPreview() {
-      prev.innerHTML = "";
-      prev.appendChild(el("span", "// baked at ")).className = "lk";
-      prev.appendChild(document.createTextNode(entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line + "\n"));
-      prev.appendChild(document.createTextNode(trackCall(name.value, previewAnchor(n), rows)));
-    }
     function onToggle() { if (cb.checked) sync(); else { delete picked[n.id]; body.hidden = true; count(); } }
     function sync() {
       if (!cb.checked) return;
       picked[n.id] = {
         name: name.value.trim(), description: mean.value.trim(),
         fingerprint: n.fingerprint, inject: n.inject, anchors: n.anchors || null,
-        rows: rows.filter(function (r) { return r.key || r.kind !== "const"; }),
+        rows: editor.rows(),
       };
       body.hidden = false;
       count();
     }
     cb.onchange = onToggle;
-    name.oninput = sync; mean.oninput = sync;
-    draw();
+    name.oninput = function () { editor.refresh(); sync(); };
+    mean.oninput = sync;
     return wrap;
+  }
+
+  /** the property picker + payload preview for one outcome. Owns its editable
+   *  `rows`; `nameGetter` feeds the live preview, `onSync` is called after every
+   *  change. Returns `{ el, rows(), refresh() }`. */
+  function outcomeEditor(n, entry, seed, nameGetter, onSync) {
+    var rows = (seed || []).map(function (r) { return Object.assign({}, r); });
+    var meta = metaByName(n);
+    var sample = false;
+    var box = el("div");
+    box.appendChild(el("ph", "properties  ·  pick a key, rename it, flatten an object, add constants"));
+    var host = el("div"); box.appendChild(host);
+    var head = el("ph"); head.style.margin = "8px 0 0"; head.textContent = "will send";
+    var toggle = document.createElement("button");
+    toggle.className = "mini"; toggle.style.marginLeft = "6px";
+    toggle.onclick = function () { sample = !sample; preview(); };
+    head.appendChild(toggle); box.appendChild(head);
+    var prev = el("prev"); box.appendChild(prev);
+
+    function has(name) { return rows.filter(function (x) { return x.kind !== "const" && x.name === name; })[0]; }
+    function changed() { draw(); onSync(); }
+
+    function addRow(c, ambient) {
+      rows.push({ kind: ambient ? "ambient" : "prop", key: cleanKey(c.key, c.key),
+        name: c.name, accessor: ambient ? (ambient.accessor || ambient.via) : undefined });
+    }
+    function keyInput(r, fallback) {
+      var k = input("text"); k.className = "k"; k.value = r.key;
+      k.oninput = function () { r.key = cleanKey(k.value, fallback); preview(); onSync(); };
+      k.onblur = function () { k.value = r.key; };
+      return k;
+    }
+    function rhs(c, ambient) {
+      if (has(c.name)) return "= " + (ambient ? shortAcc(ambient) : (c.expr || c.name)) + (ambient && ambient.identity ? "  ⚑" : "");
+      if (ambient) return "· " + ambient.source + (ambient.identity ? " ⚑" : "");
+      return !c.field && meta[c.name] && meta[c.name].shape === "object" ? "· object" : "";
+    }
+    function candRow(c, ambient) {
+      var r = has(c.name);
+      var line = el("prow");
+      if (c.field) line.style.marginLeft = "18px";
+      var pc = input("checkbox"); pc.checked = !!r;
+      pc.onchange = function () {
+        if (pc.checked) addRow(c, ambient);
+        else rows = rows.filter(function (x) { return x !== r; });
+        changed();
+      };
+      line.appendChild(pc);
+      if (r) line.appendChild(keyInput(r, c.key));
+      line.appendChild(el("span", (r ? "" : (c.field ? "↳ " : "") + c.name + " ") + rhs(c, ambient))).className = "v";
+      return line;
+    }
+    function constRow(r) {
+      var line = el("prow");
+      line.appendChild(input("checkbox")).checked = true;
+      var k = input("text"); k.className = "k"; k.placeholder = "key"; k.value = r.key;
+      k.oninput = function () { r.key = cleanKey(k.value, ""); preview(); onSync(); };
+      var v = input("text"); v.className = "cv"; v.placeholder = "\"value\" / 42 / true"; v.value = r.value;
+      v.oninput = function () { r.value = coerce(v.value); preview(); onSync(); };
+      var x = el("span", "✕"); x.className = "x";
+      x.onclick = function () { rows = rows.filter(function (z) { return z !== r; }); changed(); };
+      line.appendChild(k); line.appendChild(el("span", "=")); line.appendChild(v); line.appendChild(x);
+      return line;
+    }
+    function draw() {
+      host.innerHTML = "";
+      (n.props || []).forEach(function (p) { candsOf(p).forEach(function (c) { host.appendChild(candRow(c, null)); }); });
+      ((catalog && catalog.ambientProps) || []).forEach(function (p) {
+        host.appendChild(candRow({ name: p.name, key: p.name, expr: p.accessor || p.via }, p));
+      });
+      rows.filter(function (r) { return r.kind === "const"; }).forEach(function (r) { host.appendChild(constRow(r)); });
+      var add = document.createElement("button");
+      add.className = "mini"; add.textContent = "＋ constant";
+      add.onclick = function () { rows.push({ kind: "const", key: "", value: "" }); changed(); };
+      host.appendChild(add);
+      preview();
+    }
+    function preview() {
+      toggle.textContent = sample ? "show code" : "show a sample";
+      prev.textContent = "";
+      var anchor = previewAnchor(n);
+      if (sample) {
+        prev.appendChild(document.createTextNode(
+          JSON.stringify(samplePayload(nameGetter(), anchor, rows, meta), null, 2).replace(/"‹([^›]+)›"/g, "‹$1›")));
+      } else {
+        prev.appendChild(el("span", "// baked at " + entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line + "\n")).className = "lk";
+        prev.appendChild(document.createTextNode(trackCall(nameGetter(), anchor, rows)));
+      }
+    }
+    draw();
+    return { el: box, rows: function () { return rows.filter(function (r) { return r.key || r.kind !== "const"; }); }, refresh: preview };
   }
 
   function shortAcc(a) {

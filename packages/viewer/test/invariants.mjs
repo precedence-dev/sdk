@@ -115,7 +115,7 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
 {
   const { createRequire } = await import("node:module");
   const require = createRequire(import.meta.url);
-  const { entryFor, nodesFor, toEvents, fromRows, trackCall, cleanName, cleanKey } = require(path.resolve(here, "../browser/agent.js"));
+  const { entryFor, nodesFor, toEvents, fromRows, trackCall, cleanName, cleanKey, candsOf, samplePayload } = require(path.resolve(here, "../browser/agent.js"));
 
   const A = "src/ShiftPage.tsx#ShiftPage::button[update-shifts]";
   const agentCat = { elements: [{
@@ -225,6 +225,32 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
   ]);
   check("agent trackCall: renders precedence.track(name, { psc_id, …selected props })",
     /^precedence\.track\("shifts_updated", \{ psc_id: "p_[a-z0-9]+", adminId, surface: "admin_portal" \}\)$/.test(call), call);
+
+  /* ---- object props: flatten a type-resolved object, leave an inferred one whole ---- */
+  check("agent candsOf: a resolved object contributes the whole value + each real field; an inferred one stays whole",
+    (() => {
+      const resolved = candsOf({ name: "project", shape: "object", src: "resolved", fields: ["categories", "project_id", "map"] });
+      const inferred = candsOf({ name: "filtered", shape: "object", src: "observed", fields: ["sort"] });
+      return resolved.length === 3
+        && resolved[0].expr === null && resolved[0].key === "project"
+        && resolved.some((c) => c.key === "project_categories" && c.expr === "project.categories" && c.field)
+        && !resolved.some((c) => /map/.test(c.name))   // method-name noise dropped
+        && inferred.length === 1;
+    })());
+
+  /* ---- the sample payload: placeholder scalars, real object shapes, literal constants ---- */
+  const sp = samplePayload("shifts updated", A + "|onClick|success", [
+    { kind: "prop", key: "admin_id", name: "adminId" },
+    { kind: "prop", key: "project", name: "project" },
+    { kind: "const", key: "surface", value: "admin_portal" },
+  ], { project: { name: "project", shape: "object", fields: ["categories", "project_id"] } });
+  check("agent samplePayload: scalars → ‹placeholder›, object → its field shape, const → the literal, psc_id real",
+    sp.event === "shifts_updated"
+      && /^p_[a-z0-9]+$/.test(sp.properties.psc_id)
+      && sp.properties.admin_id === "‹adminId›"
+      && JSON.stringify(sp.properties.project) === '{"categories":"‹categories›","project_id":"‹project_id›"}'
+      && sp.properties.surface === "admin_portal",
+    JSON.stringify(sp));
 
   /* forwardsTo: a control that delegates to a prop shows the outcomes from the
    * render site(s) — the picker never surfaces the parent component to the PM */
