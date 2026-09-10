@@ -1,12 +1,28 @@
 /**
- * @precedence-dev/sdk — the runtime half of Precedence: what makes
- * @precedence-dev/instrument's `emit: "runtime"` mode work. Framework-agnostic,
- * zero dependencies, ~1 KB. Call `installPrecedence` once at your app root.
+ * @precedence-dev/sdk — the client half of Precedence. Framework-agnostic, zero
+ * dependencies.
  *
- * It also carries a ~15-line hook: when the page is opened with
- * `?precedence=pick&at=<localhost url>` (by `@precedence-dev/wizard`), it loads the
- * picker agent from that URL. All the overlay code lives in @precedence-dev/viewer,
- * not here.
+ * `@precedence-dev/instrument` bakes a complete `precedence.track("event", {
+ * psc_id, ...props })` call at every tracked site (`psc_id` is a short hash of
+ * the anchor). This package collects those (plus hand-written `precedence.track`
+ * / `identify`), buffers, batches, and delivers them to one destination.
+ *
+ *   import { installPrecedence, precedence } from "@precedence-dev/sdk";
+ *
+ *   installPrecedence({ endpoint: "https://collect.example.com/e" });
+ *   // optional: + planUrl to rename / disable / retune events without a rebuild
+ *   precedence.identify("u_123", { email: "…" });
+ *
+ * The `?precedence=pick&at=<localhost>` picker hook lives here too; the overlay
+ * itself is served by `@precedence-dev/viewer`.
  */
-export { installPrecedence, installFromPlan, precedencePicker, PM_ID_KEY } from "./runtime";
-export type { InstallOpts, RuntimePlan, PlanEvent, PlanAnchor } from "./runtime";
+export { installPrecedence, precedence, precedencePicker, PSC_ID_KEY, PSC_V_KEY, pscId } from "./runtime";
+export type {
+  InstallOpts,
+  RuntimePlan,
+  PlanEvent,
+  PlanAnchor,
+  Endpoint,
+  PrecedenceEvent,
+  PrecedenceContext,
+} from "./runtime";
