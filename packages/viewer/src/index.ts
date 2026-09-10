@@ -1,13 +1,11 @@
 /**
- * @precedence-dev/viewer programmatic entry.
+ * @precedence-dev/viewer — serve the live picker and get the exported plan back.
  *
- * The picker UI itself is `index.html` (self-contained). This module is for
- * driving it from Node: bake a catalog into the page (`renderHtml`), or serve
- * it and get the exported plan back (`servePlan`).
+ * The picker UI is `browser/agent.js`, a vanilla overlay `@precedence-dev/sdk`
+ * injects into a running dev build (opened with `?precedence=pick&at=<server>`).
+ * This module is the Node side: `servePlan` runs the local receiver;
+ * `@precedence-dev/wizard` drives it.
  */
-export { loadCatalog } from "./model";
-export type { Catalog, LoadResult } from "./model";
-export { renderHtml } from "./render";
 export { servePlan } from "./serve";
-export type { ServeOpts } from "./serve";
+export type { ServeOpts, Catalog } from "./serve";
 export { openInBrowser } from "./open";
