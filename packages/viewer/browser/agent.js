@@ -2,8 +2,9 @@
  * The Precedence picker agent. Injected into a running dev build by
  * @precedence-dev/sdk when the page is opened with `?precedence=pick&at=<url>`.
  *
- * Click an interactive element -> resolve it to a catalog entry via the
- * `data-precedence-id` stamp (@precedence-dev/cli/stamp-loader) -> the element's
+ * Click an interactive element -> resolve it to a catalog entry (walk the React
+ * fiber tree up from the node, reading the `data-precedence-id` stamp
+ * @precedence-dev/cli/stamp-loader put in each element's props) -> the element's
  * outcome tree is shown; for each outcome worth tracking, name it, write a
  * meaning, choose + rename properties, add constants, and see the exact
  * `precedence.track(...)` call it will bake -> POST the plan to the wizard.
@@ -22,10 +23,51 @@
   // shape was inferred from usage (`x.map(...)`) rather than a resolved type
   var FIELD_NOISE = /^(split|sort|map|filter|forEach|some|every|find|reduce|includes|indexOf|slice|concat|join|trim|toLowerCase|toUpperCase|replace|match|test|toString|valueOf|length|push|pop)$/;
 
-  /* ---- pure: resolve a stamped node to a catalog entry ---------------------- */
+  /* ---- resolve a clicked node to a catalog entry ------------------------------
+   * The stamp-loader puts `data-precedence-id="<file>#<Comp>::<slot>"` in every
+   * interactive element's JSX. Reading it back:
+   *
+   *   1. FIBER WALK (primary) — from the clicked DOM node, up the React fiber
+   *      tree via `fiber.return`. The fiber tree is the LOGICAL component tree,
+   *      so this:
+   *        · crosses portals — a MUI Select's option list, a Dialog body, a
+   *          date picker's calendar render into <body>, but their fibers stay
+   *          children of where they were written
+   *        · needs no prop forwarding — a component fiber carries
+   *          `data-precedence-id` in its props even when the component never
+   *          passes it down to a real DOM attribute
+   *        · doesn't care what rendered the content — API data, a 3rd-party
+   *          list, anything
+   *      One rule, every React component, every UI library. No per-library code.
+   *
+   *   2. DOM ATTRIBUTE (fallback) — `closest("[data-precedence-id]")`, for host
+   *      elements and in case a future React renames its internal fields.
+   *
+   * `internalKey` is memoised on first hit — React DOM's suffix is random per
+   * page but stable for the page's life. */
+  var internalKey = null;
+  function fiberOf(node) {
+    if (!node || typeof node !== "object") return null;
+    if (internalKey && node[internalKey]) return node[internalKey];
+    var keys = Object.keys(node);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf("__reactFiber$") === 0) { internalKey = keys[i]; return node[keys[i]]; }
+    }
+    return null;
+  }
+  function refViaFiber(node) {
+    for (var f = fiberOf(node); f; f = f.return) {
+      var p = f.memoizedProps || f.pendingProps;
+      if (p && p["data-precedence-id"]) return p["data-precedence-id"];
+    }
+    return null;
+  }
+  function refViaDom(node) {
+    var s = node && node.closest ? node.closest("[data-precedence-id]") : null;
+    return s ? s.getAttribute("data-precedence-id") : null;
+  }
   function entryFor(node, catalog) {
-    var stamped = node && node.closest ? node.closest("[data-precedence-id]") : null;
-    var ref = stamped && stamped.getAttribute("data-precedence-id");
+    var ref = refViaFiber(node) || refViaDom(node);
     if (!ref) return null;
     var els = catalog.elements || [];
     for (var i = 0; i < els.length; i++) if (els[i].ref === ref) return els[i];
@@ -325,7 +367,7 @@
       "<button id=plan hidden>plan</button>" +
       "<button class=pause id=pause>pause</button>" +
       "<button class=go id=send>send to wizard</button>" +
-      "<span class=msg id=msg>click an element to track it — or “browse” for one you can't reach</span></div>" +
+      "<span class=msg id=msg>click an element to track it — or “browse” for one that isn't on screen</span></div>" +
       "<div class=panel id=panel hidden></div>" +
       "</div>";
     panel = root.getElementById("panel");
@@ -410,9 +452,9 @@
     return r;
   }
 
-  /* every catalog element, searchable — for controls the DOM can't resolve a
-   * click to: MUI Selects / menus / date pickers render their guts into a
-   * portal at <body>, and some components don't forward the stamp to a node. */
+  /* every catalog element, searchable — for anything not rendered right now (a
+   * closed dialog, an inactive tab, another route). Clicking resolves via the
+   * fiber walk (see entryFor), so on-screen MUI components don't need this. */
   function showBrowse() {
     panel.hidden = false;
     panel.innerHTML = "";

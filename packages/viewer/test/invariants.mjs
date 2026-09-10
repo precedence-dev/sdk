@@ -150,12 +150,22 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
     ] };
 
   const stamp = (v) => ({ closest: (s) => (s === "[data-precedence-id]" && v ? { getAttribute: () => v } : null) });
+  // a DOM node with NO data-precedence-id attribute, whose React fiber chain
+  // carries the stamp two components up (the portal / non-forwarding case)
+  const fiberNode = (ref) => {
+    const top = { memoizedProps: ref ? { "data-precedence-id": ref } : {}, return: null };
+    const mid = { memoizedProps: { onChange: () => {} }, return: top };
+    return { ["__reactFiber$" + Math.random().toString(36).slice(2)]: { return: mid }, closest: () => null };
+  };
 
-  check("agent entryFor: a data-precedence-id stamp resolves to its catalog element by exact ref",
+  check("agent entryFor: a data-precedence-id DOM attribute resolves to its catalog element by exact ref",
     entryFor(stamp(A.split("|")[0]), agentCat)?.component === "ShiftPage");
   check("agent entryFor: no stamp -> null", entryFor(stamp(null), agentCat) === null);
   check("agent entryFor: a ref not in the catalog -> null",
     entryFor(stamp("src/Gone.tsx#Gone::form"), agentCat) === null);
+  check("agent entryFor: resolves through the React fiber tree when the DOM carries no stamp (portals / non-forwarding components)",
+    entryFor(fiberNode(A.split("|")[0]), agentCat)?.component === "ShiftPage"
+      && entryFor(fiberNode(null), agentCat) === null);
 
   const tree = nodesFor(entryFor(stamp(A.split("|")[0]), agentCat), agentCat);
   const flat = (ns, out = []) => { for (const n of ns) { out.push(n); flat(n.children, out); } return out; };
