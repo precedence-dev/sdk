@@ -1,16 +1,29 @@
 name: Publish
 
 # Two packages in this repo: @precedence-dev/sdk and @precedence-dev/viewer.
-# Triggered only when either package's own version changes;
-# JS-DevTools/npm-publish additionally no-ops per-package if that version is
-# already on the registry — so a bump to just one of them still safely skips
-# the other, and this is safe to leave running on every push to main.
+# Triggered only when either package's own version changes.
+#
+# Uses npm's OIDC Trusted Publishing — no NPM_TOKEN secret at all. npm
+# verifies the OIDC claims (this exact repo + this exact workflow file) match
+# whatever's configured as the package's trusted publisher on npmjs.com, then
+# issues a short-lived publish token itself. One-time setup on npmjs.com, for
+# BOTH packages: package page -> Settings -> "Trusted Publisher" -> GitHub
+# Actions -> org "precedence-dev", repo "sdk", workflow
+# ".github/workflows/publish.yml".
+#
+# The inline version check makes each job idempotent (safe on every matching
+# push, and a bump to just one package doesn't try to republish the other)
+# without depending on a third-party action's OIDC support.
 on:
   push:
     branches: [main]
     paths:
       - "packages/sdk/package.json"
       - "packages/viewer/package.json"
+
+permissions:
+  contents: read
+  id-token: write # required to request the OIDC token for trusted publishing
 
 jobs:
   publish-sdk:
@@ -22,12 +35,20 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
       - run: npm ci
       - run: npm test
-      - uses: JS-DevTools/npm-publish@v3
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
-          package: packages/sdk/package.json
+      - name: Publish if the version changed
+        working-directory: packages/sdk
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view "$NAME" version 2>/dev/null || echo "")
+          if [ "$VERSION" != "$PUBLISHED" ]; then
+            npm publish
+          else
+            echo "$NAME@$VERSION is already published — skipping"
+          fi
 
   publish-viewer:
     runs-on: ubuntu-latest
@@ -38,9 +59,17 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
       - run: npm ci
       - run: npm test
-      - uses: JS-DevTools/npm-publish@v3
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
-          package: packages/viewer/package.json
+      - name: Publish if the version changed
+        working-directory: packages/viewer
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view "$NAME" version 2>/dev/null || echo "")
+          if [ "$VERSION" != "$PUBLISHED" ]; then
+            npm publish
+          else
+            echo "$NAME@$VERSION is already published — skipping"
+          fi
