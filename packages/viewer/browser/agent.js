@@ -276,7 +276,13 @@
   if (typeof document === "undefined" || !document.currentScript) return; // required for tests, not a browser
 
   /* ---- browser: the overlay -------------------------------------------------- */
-  var AT = new URL(document.currentScript.src).origin;
+  var SCRIPT_URL = new URL(document.currentScript.src);
+  var AT = SCRIPT_URL.origin;
+  var SID = SCRIPT_URL.searchParams.get("s");
+  // a Cloud/BYOC server scopes catalog/plan to a picker session
+  // (agent.js?s=<sid>); the local one-shot servePlan() has no sid and keeps
+  // hitting its own root-level routes.
+  function ep(path) { return SID ? AT + "/v1/sessions/" + SID + path : AT + path; }
   var catalog = null;
   var picked = {};   // nodeId -> { name, description, fingerprint, inject, anchors, rows }
   var inPlan = {};    // nodeId -> true (already in .precedence/plan.json)
@@ -284,8 +290,8 @@
   var root, panel, barEl, paused = false;
 
   Promise.all([
-    fetch(AT + "/catalog").then(function (r) { return r.json(); }),
-    fetch(AT + "/plan").then(function (r) { return r.json(); }).catch(function () { return { events: [] }; }),
+    fetch(ep("/catalog")).then(function (r) { return r.json(); }),
+    fetch(ep("/plan")).then(function (r) { return r.json(); }).catch(function () { return { events: [] }; }),
   ]).then(function (res) {
     catalog = res[0];
     seedExisting(res[1]);
@@ -719,7 +725,7 @@
   function send() {
     var events = toEvents(picked).concat(carry);
     if (!events.length) { bar("nothing tracked yet"); return; }
-    fetch(AT + "/plan", {
+    fetch(ep("/plan"), {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ tool: "precedence-agent", generated: new Date().toISOString(), events: events }),
     })
