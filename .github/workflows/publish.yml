@@ -20,6 +20,7 @@ on:
     paths:
       - "packages/sdk/package.json"
       - "packages/viewer/package.json"
+  workflow_dispatch: {} # manual re-run, e.g. right after setting up Trusted Publishing
 
 permissions:
   contents: read
