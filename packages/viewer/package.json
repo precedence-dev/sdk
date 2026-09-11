@@ -1,6 +1,6 @@
 {
   "name": "@precedence-dev/viewer",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "A browser for Precedence's catalog.pcs - review every tracking attach point, pick nodes, export an event plan. Zero dependencies; the CLI bakes a shareable static copy.",
   "license": "FSL-1.1-ALv2",
   "author": "Precedence",

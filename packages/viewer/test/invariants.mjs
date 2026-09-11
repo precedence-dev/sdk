@@ -193,14 +193,16 @@ check("renderHtml: postUrl -> precedence-post carries it as JSON",
   const pa = fromRows([
     { kind: "prop", key: "adminId", name: "adminId" },                     // shorthand
     { kind: "prop", key: "admin_id", name: "adminId" },                    // renamed → accessor is the bare binding
+    { kind: "prop", key: "project_categories", name: "project.categories" }, // a flattened object field
     { kind: "ambient", key: "token", accessor: 'localStorage.getItem("t")' }, // ambient read, renamed key
     { kind: "const", key: "surface", value: "admin_portal" },              // literal
     { kind: "const", key: "step", value: 3 },
   ]);
-  check("agent fromRows: shorthand prop → no accessor; rename / ambient / const → an accessor expr",
-    JSON.stringify(pa.properties) === '["adminId","admin_id","token","surface","step"]'
+  check("agent fromRows: shorthand → no accessor; rename / flattened field / ambient / const → an accessor expr",
+    JSON.stringify(pa.properties) === '["adminId","admin_id","project_categories","token","surface","step"]'
       && pa.accessors.adminId === undefined
       && pa.accessors.admin_id === "adminId"
+      && pa.accessors.project_categories === "project.categories"   // flatten = a dotted value expr, flat key
       && pa.accessors.token === 'localStorage.getItem("t")'
       && pa.accessors.surface === '"admin_portal"'
       && pa.accessors.step === "3",

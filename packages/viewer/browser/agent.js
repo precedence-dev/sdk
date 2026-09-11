@@ -612,11 +612,11 @@
   function outcomeEditor(n, entry, seed, nameGetter, onSync) {
     var rows = (seed || []).map(function (r) { return Object.assign({}, r); });
     var meta = metaByName(n);
-    var sample = false;
+    var sample = true;
     var box = el("div");
-    box.appendChild(el("ph", "properties  ·  pick a key, rename it, flatten an object, add constants"));
+    box.appendChild(el("ph", "properties  ·  tick, rename the key, ⤋ flatten an object, ＋ add a constant"));
     var host = el("div"); box.appendChild(host);
-    var head = el("ph"); head.style.margin = "8px 0 0"; head.textContent = "will send";
+    var head = el("ph"); head.style.margin = "8px 0 0"; head.textContent = "this event will send";
     var toggle = document.createElement("button");
     toggle.className = "mini"; toggle.style.marginLeft = "6px";
     toggle.onclick = function () { sample = !sample; preview(); };
@@ -641,7 +641,12 @@
       if (ambient) return "· " + ambient.source + (ambient.identity ? " ⚑" : "");
       return !c.field && meta[c.name] && meta[c.name].shape === "object" ? "· object" : "";
     }
-    function candRow(c, ambient) {
+    function flatten(fields, objName) {
+      fields.forEach(function (fc) { if (!has(fc.name)) addRow(fc, null); });
+      rows = rows.filter(function (x) { return !(x.kind !== "const" && x.name === objName); });
+      changed();
+    }
+    function candRow(c, ambient, fields) {
       var r = has(c.name);
       var line = el("prow");
       if (c.field) line.style.marginLeft = "18px";
@@ -654,6 +659,12 @@
       line.appendChild(pc);
       if (r) line.appendChild(keyInput(r, c.key));
       line.appendChild(el("span", (r ? "" : (c.field ? "↳ " : "") + c.name + " ") + rhs(c, ambient))).className = "v";
+      if (fields && fields.length) {
+        var fl = document.createElement("button");
+        fl.className = "mini"; fl.textContent = "⤋ flatten";
+        fl.onclick = function () { flatten(fields, c.name); };
+        line.appendChild(fl);
+      }
       return line;
     }
     function constRow(r) {
@@ -670,9 +681,12 @@
     }
     function draw() {
       host.innerHTML = "";
-      (n.props || []).forEach(function (p) { candsOf(p).forEach(function (c) { host.appendChild(candRow(c, null)); }); });
+      (n.props || []).forEach(function (p) {
+        var cs = candsOf(p), fields = cs.slice(1);
+        cs.forEach(function (c) { host.appendChild(candRow(c, null, c.field ? null : fields)); });
+      });
       ((catalog && catalog.ambientProps) || []).forEach(function (p) {
-        host.appendChild(candRow({ name: p.name, key: p.name, expr: p.accessor || p.via }, p));
+        host.appendChild(candRow({ name: p.name, key: p.name, expr: p.accessor || p.via }, p, null));
       });
       rows.filter(function (r) { return r.kind === "const"; }).forEach(function (r) { host.appendChild(constRow(r)); });
       var add = document.createElement("button");
@@ -682,14 +696,14 @@
       preview();
     }
     function preview() {
-      toggle.textContent = sample ? "show code" : "show a sample";
+      toggle.textContent = sample ? "show the exact call" : "show a sample";
       prev.textContent = "";
       var anchor = previewAnchor(n);
       if (sample) {
         prev.appendChild(document.createTextNode(
           JSON.stringify(samplePayload(nameGetter(), anchor, rows, meta), null, 2).replace(/"‹([^›]+)›"/g, "‹$1›")));
       } else {
-        prev.appendChild(el("span", "// baked at " + entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line + "\n")).className = "lk";
+        prev.appendChild(el("span", "// " + entry.file.replace(/.*\/src\//, "src/") + ":" + entry.line + "\n")).className = "lk";
         prev.appendChild(document.createTextNode(trackCall(nameGetter(), anchor, rows)));
       }
     }
