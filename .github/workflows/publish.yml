@@ -1,0 +1,46 @@
+name: Publish
+
+# Two packages in this repo: @precedence-dev/sdk and @precedence-dev/viewer.
+# Triggered only when either package's own version changes;
+# JS-DevTools/npm-publish additionally no-ops per-package if that version is
+# already on the registry — so a bump to just one of them still safely skips
+# the other, and this is safe to leave running on every push to main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/sdk/package.json"
+      - "packages/viewer/package.json"
+
+jobs:
+  publish-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - run: npm test
+      - uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          package: packages/sdk/package.json
+
+  publish-viewer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - run: npm test
+      - uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          package: packages/viewer/package.json
