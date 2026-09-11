@@ -1,6 +1,6 @@
 {
   "name": "@precedence-dev/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The client half of Precedence: installPrecedence collects, buffers, batches and delivers the events @precedence-dev/instrument bakes in, with an optional live plan overlay. Framework-agnostic, zero dependencies.",
   "license": "FSL-1.1-ALv2",
   "author": "Precedence",
